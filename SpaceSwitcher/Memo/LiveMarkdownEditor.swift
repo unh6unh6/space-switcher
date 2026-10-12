@@ -198,10 +198,11 @@ final class LiveMarkdownTextView: NSTextView {
 
     func restyle(force: Bool = false) {
         guard let storage = textStorage, !hasMarkedText() else { return }
-        let caretLines = isRevealing ? MarkdownLiveStyle.lines(touching: selectedRange(), in: string) : nil
+        let caretLines = isRevealing
+            ? MarkdownLiveStyle.expand(MarkdownLiveStyle.lines(touching: selectedRange(), in: string), in: string) : nil
         guard force || caretLines != revealed else { return }
         revealed = caretLines
-        LiveStyleApplier.apply(to: storage, revealing: caretLines)
+        LiveStyleApplier.apply(to: storage, revealing: caretLines, width: textContainer?.size.width ?? 0)
         typingAttributes = LiveStyleApplier.baseAttributes
         let all = NSRange(location: 0, length: storage.length)
         layoutManager?.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
@@ -218,6 +219,14 @@ final class LiveMarkdownTextView: NSTextView {
         guard let layout = layoutManager, let container = textContainer else { return }
         layout.ensureLayout(for: container)
         sizeToFit()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = abs(newSize.width - frame.width) > 0.5
+        super.setFrameSize(newSize)
+        if widthChanged, string.contains("|") {
+            DispatchQueue.main.async { [weak self] in self?.restyle(force: true) }   // tables fit the new width
+        }
     }
 
     override func didChangeText() {
@@ -447,6 +456,8 @@ extension NSAttributedString.Key {
     /// Background drawn across the whole line (quote bar, code block).
     static let liveBlock = NSAttributedString.Key("SpaceSwitcher.liveBlock")
     static let liveLink = NSAttributedString.Key("SpaceSwitcher.liveLink")
+    /// A `LiveDrawing` drawn in the (enlarged) line fragment of the character it is on: tables, images.
+    static let liveDrawing = NSAttributedString.Key("SpaceSwitcher.liveDrawing")
 }
 
 enum LiveStyleApplier {
@@ -474,7 +485,7 @@ enum LiveStyleApplier {
         [.font: baseFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: baseParagraph]
     }
 
-    static func apply(to storage: NSTextStorage, revealing caretLines: ClosedRange<Int>?) {
+    static func apply(to storage: NSTextStorage, revealing caretLines: ClosedRange<Int>?, width: CGFloat = 0) {
         let text = storage.string
         let all = NSRange(location: 0, length: storage.length)
         storage.beginEditing()
@@ -483,7 +494,34 @@ enum LiveStyleApplier {
             let raw = caretLines?.contains(run.line) ?? false
             style(run, raw: raw, in: storage)
         }
+        for table in MarkdownTables.find(in: text) where !(caretLines?.overlaps(table.lines) ?? false) {
+            drawTable(table, in: storage, width: width)
+        }
         storage.endEditing()
+    }
+
+    /// The table's first line grows to the drawn table's height and carries the drawing; the other
+    /// lines fold to nothing. Their text is hidden by the `.table` runs.
+    private static func drawTable(_ table: MarkdownTable, in storage: NSTextStorage, width: CGFloat) {
+        let s = storage.string as NSString
+        let drawing = LiveTableDrawing(table, source: storage.string, width: width)
+        for line in table.lines {
+            let start = MarkdownLiveStyle.lineStart(line, in: storage.string)
+            let range = s.lineRange(for: NSRange(location: start, length: 0))
+            let p = NSMutableParagraphStyle()
+            if line == table.lines.lowerBound {
+                p.minimumLineHeight = drawing.size.height
+                p.maximumLineHeight = drawing.size.height
+                p.paragraphSpacing = 4
+                // On the line's last character (its newline): hidden characters at a line start are laid
+                // out at the end of the previous line fragment, which would draw the table a line up.
+                storage.addAttribute(.liveDrawing, value: drawing, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
+            } else {
+                p.minimumLineHeight = 0.01
+                p.maximumLineHeight = 0.01
+            }
+            storage.addAttribute(.paragraphStyle, value: p, range: range)
+        }
     }
 
     private static func style(_ run: LiveStyleRun, raw: Bool, in storage: NSTextStorage) {
@@ -559,6 +597,8 @@ enum LiveStyleApplier {
         case .codeBlock:
             let line = (storage.string as NSString).lineRange(for: r)
             storage.addAttributes([.font: codeFont, .liveBlock: Block.code], range: line)
+        case .table:
+            if !raw { storage.addAttribute(.liveHidden, value: true, range: r) }
         case .rule:
             if raw {
                 storage.addAttribute(.foregroundColor, value: LiveStyleApplier.markerColor, range: r)
@@ -632,6 +672,11 @@ final class LiveMarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate 
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         guard let storage = textStorage, let container = textContainers.first else { return }
         let chars = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        storage.enumerateAttribute(.liveDrawing, in: chars) { value, range, _ in
+            guard let drawing = value as? LiveDrawing else { return }
+            let fragment = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: range.location), effectiveRange: nil)
+            drawing.draw(in: CGRect(origin: CGPoint(x: fragment.minX + origin.x, y: fragment.minY + origin.y), size: drawing.size))
+        }
         storage.enumerateAttribute(.liveDecoration, in: chars) { value, range, _ in
             guard let decoration = value as? String else { return }
             let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -661,5 +706,104 @@ final class LiveMarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate 
                 break
             }
         }
+    }
+}
+
+// MARK: - drawn blocks (#21)
+
+/// Something drawn in place of hidden source lines: a table, an image.
+protocol LiveDrawing: AnyObject {
+    var size: CGSize { get }
+    func draw(in rect: CGRect)
+}
+
+/// A pipe table laid out for a width: columns fit (cells wrap) when the natural width doesn't.
+final class LiveTableDrawing: NSObject, LiveDrawing {
+    private static let padX: CGFloat = 6, padY: CGFloat = 3, minColumn: CGFloat = 36
+
+    private let cells: [[NSAttributedString]]   // row 0 = header
+    private let columns: [CGFloat]
+    private let rows: [CGFloat]
+    let size: CGSize
+
+    init(_ table: MarkdownTable, source: String, width: CGFloat) {
+        func cell(_ c: MarkdownTable.Cell, header: Bool, alignment: MarkdownTable.Alignment) -> NSAttributedString {
+            let shown = MarkdownLiveStyle.displayInline(c.text)
+            let p = NSMutableParagraphStyle()
+            p.alignment = alignment == .center ? .center : alignment == .right ? .right : .left
+            let base = header ? NSFont.systemFont(ofSize: LiveStyleApplier.fontSize, weight: .semibold) : LiveStyleApplier.baseFont
+            let a = NSMutableAttributedString(string: shown.text, attributes: [.font: base, .foregroundColor: NSColor.labelColor, .paragraphStyle: p])
+            for run in shown.runs {
+                switch run.kind {
+                case .bold: a.addAttribute(.font, value: NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask), range: run.range)
+                case .italic: a.addAttribute(.font, value: NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask), range: run.range)
+                case .code: a.addAttributes([.font: LiveStyleApplier.codeFont, .backgroundColor: NSColor.labelColor.withAlphaComponent(0.08)], range: run.range)
+                case .strike: a.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: run.range)
+                case .link: a.addAttribute(.foregroundColor, value: NSColor.linkColor, range: run.range)
+                default: break
+                }
+            }
+            return a
+        }
+        let padX = Self.padX, padY = Self.padY, minColumn = Self.minColumn
+        let all = [table.header] + table.rows
+        let texts = all.enumerated().map { r, row in
+            row.enumerated().map { c, value in cell(value, header: r == 0, alignment: table.alignments[c]) }
+        }
+
+        let count = table.header.count
+        let natural: [CGFloat] = (0..<count).map { c in
+            max(minColumn, texts.map { ceil($0[c].size().width) + 2 * padX }.max() ?? minColumn)
+        }
+        let available = max(width - 1, CGFloat(count) * minColumn)
+        let total = natural.reduce(0, +)
+        // Too wide: shrink columns in proportion (never below the minimum); cells wrap.
+        var widths: [CGFloat] = width > 0 && total > available ? natural.map { max(minColumn, floor($0 * available / total)) } : natural
+        // The minimum can push the sum back over; take the rest from the widest columns.
+        while width > 0, widths.reduce(0, +) > available,
+              let widest = widths.indices.max(by: { widths[$0] < widths[$1] }), widths[widest] > minColumn {
+            widths[widest] -= min(widths.reduce(0, +) - available, widths[widest] - minColumn)
+        }
+        let heights: [CGFloat] = texts.map { row in
+            row.enumerated().map { c, text -> CGFloat in
+                let bounds = text.boundingRect(with: CGSize(width: widths[c] - 2 * padX, height: .greatestFiniteMagnitude),
+                                               options: [.usesLineFragmentOrigin, .usesFontLeading])
+                return ceil(max(bounds.height, LiveStyleApplier.fontSize + 3)) + 2 * padY
+            }.max() ?? 0
+        }
+        cells = texts
+        columns = widths
+        rows = heights
+        size = CGSize(width: widths.reduce(0, +) + 1, height: heights.reduce(0, +) + 1)
+        super.init()
+    }
+
+    func draw(in rect: CGRect) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let x0 = rect.minX + 0.5, y0 = rect.minY + 0.5
+        if let header = rows.first {
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            CGRect(x: x0, y: y0, width: size.width - 1, height: header).fill()
+        }
+        var y = y0
+        for (r, height) in rows.enumerated() {
+            var x = x0
+            for (c, width) in columns.enumerated() {
+                let box = CGRect(x: x + Self.padX, y: y + Self.padY, width: width - 2 * Self.padX, height: height - 2 * Self.padY)
+                cells[r][c].draw(with: box, options: [.usesLineFragmentOrigin, .usesFontLeading])
+                x += width
+            }
+            y += height
+        }
+        let grid = NSBezierPath()
+        grid.lineWidth = 1
+        grid.appendRect(CGRect(x: x0, y: y0, width: size.width - 1, height: size.height - 1))
+        var lineY = y0
+        for height in rows.dropLast() { lineY += height; grid.move(to: CGPoint(x: x0, y: lineY)); grid.line(to: CGPoint(x: x0 + size.width - 1, y: lineY)) }
+        var lineX = x0
+        for width in columns.dropLast() { lineX += width; grid.move(to: CGPoint(x: lineX, y: y0)); grid.line(to: CGPoint(x: lineX, y: y0 + size.height - 1)) }
+        NSColor.separatorColor.setStroke()
+        grid.stroke()
     }
 }

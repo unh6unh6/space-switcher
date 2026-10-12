@@ -21,6 +21,8 @@ struct LiveStyleRun: Equatable {
         case fence, fenceInfo, codeBlock
         /// `---`: drawn as a line away from the caret line.
         case rule
+        /// A whole line of a pipe table (#21): hidden and drawn as a table away from the caret.
+        case table
     }
 
     let range: NSRange
@@ -35,6 +37,7 @@ enum MarkdownLiveStyle {
     static func runs(in text: String) -> [LiveStyleRun] {
         let s = text as NSString
         var runs: [LiveStyleRun] = []
+        let tableLines = Set(MarkdownTables.find(in: text).flatMap { Array($0.lines) })
         var fenceTicks = 0   // backticks of the open fence; 0 = not in a code block
         var line = 0
         var start = 0
@@ -49,7 +52,17 @@ enum MarkdownLiveStyle {
             let ticks = trimmed.prefix(while: { $0 == "`" }).count
             let tickStart = start + (s.substring(with: lineRange) as NSString)
                 .range(of: "`").location.clampedToZero
-            if fenceTicks > 0 {
+            if tableLines.contains(line) {
+                add(start, end - start, .table)
+                let delimiterRow = !trimmed.isEmpty && trimmed.allSatisfy { "|-: ".contains($0) }
+                if delimiterRow {
+                    add(start, end - start, .syntax)
+                } else {
+                    for i in start..<end where s.character(at: i) == 124 && (i == start || s.character(at: i - 1) != 92) {
+                        add(i, 1, .syntax)
+                    }
+                }
+            } else if fenceTicks > 0 {
                 // Any ``` line closes; text after it is hidden like an opening fence's info.
                 if ticks >= 3 {
                     add(tickStart, ticks, .fence)
@@ -71,6 +84,38 @@ enum MarkdownLiveStyle {
             line += 1
         }
         return runs
+    }
+
+    /// Caret lines widened to whole tables: a table shows its source all at once (#21).
+    static func expand(_ lines: ClosedRange<Int>, in text: String) -> ClosedRange<Int> {
+        var lower = lines.lowerBound, upper = lines.upperBound
+        for table in MarkdownTables.find(in: text) where table.lines.overlaps(lines) {
+            lower = min(lower, table.lines.lowerBound)
+            upper = max(upper, table.lines.upperBound)
+        }
+        return lower...upper
+    }
+
+    /// Inline Markdown as shown (markers dropped), with the styles to apply: for table cells (#21).
+    static func displayInline(_ source: String) -> (text: String, runs: [LiveStyleRun]) {
+        let s = source as NSString
+        var all: [LiveStyleRun] = []
+        inline(s, 0, s.length) { location, length, kind in
+            if length > 0 { all.append(LiveStyleRun(range: NSRange(location: location, length: length), line: 0, kind: kind)) }
+        }
+        let hidden = all.filter { $0.kind == .syntax }.map(\.range)
+        func shown(_ offset: Int) -> Int { offset - hidden.filter { NSMaxRange($0) <= offset }.reduce(0) { $0 + $1.length } }
+        var text = ""
+        var cursor = 0
+        for r in hidden.sorted(by: { $0.location < $1.location }) {
+            text += s.substring(with: NSRange(location: cursor, length: r.location - cursor))
+            cursor = NSMaxRange(r)
+        }
+        text += s.substring(from: cursor)
+        let runs = all.filter { $0.kind != .syntax }.map {
+            LiveStyleRun(range: NSRange(location: shown($0.range.location), length: $0.range.length), line: 0, kind: $0.kind)
+        }
+        return (text, runs)
     }
 
     /// Lines the selection touches; the caret line(s) show their raw source.

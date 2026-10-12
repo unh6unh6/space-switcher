@@ -94,6 +94,28 @@ final class LiveMarkdownRenderTests: XCTestCase {
         }
     }
 
+    func testTables() {
+        let text = "앞\n| 항목 | 상태 | 수 |\n|:--|:-:|--:|\n| 결제 | **완료** | 3 |\n| 아주 긴 설명이 들어가서 칸 안에서 줄바꿈이 되어야 하는 내용 | 대기 | 12 |\n뒤"
+        let (window, view) = makeEditor(text, width: 300)
+        window.appearance = NSAppearance(named: .vibrantDark)
+        view.isEditable = false
+        view.restyle(force: true)
+        view.fitHeight()
+        snapshot(view, "table-reader")
+        let layout = view.layoutManager!
+        let firstNewline = (text as NSString).range(of: "\n", range: NSRange(location: 2, length: (text as NSString).length - 2)).location
+        let firstLine = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: firstNewline), effectiveRange: nil)
+        let drawing = view.textStorage!.attribute(.liveDrawing, at: firstNewline, effectiveRange: nil) as? LiveDrawing
+        XCTAssertLessThanOrEqual(drawing?.size.width ?? 999, 300, "the table fits the width")
+        XCTAssertGreaterThan(firstLine.height, 60, "the table's first line holds the drawn table")
+        view.isEditable = true
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: MarkdownLiveStyle.lineStart(3, in: text) + 3, length: 0))
+        snapshot(view, "table-caret")
+        let raw = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: firstNewline), effectiveRange: nil)
+        XCTAssertLessThan(raw.height, 30, "caret inside: the source shows as plain lines")
+    }
+
     func testCaretOnTaskLineShowsItsSource() {
         let (window, view) = makeEditor(sample)
         view.isEditable = true
