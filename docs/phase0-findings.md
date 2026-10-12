@@ -149,3 +149,10 @@ TextEdit에서 Option+E 연타, Option+Shift+E 연타 후 Option 뗌:
 | `characterIndex(for:in:)` → 줄 번호 | 정확 (체크박스 클릭 판정에 사용) |
 
 주의: 스크립트가 합성 키를 보내므로 실행 전에 Finder를 앞에 둔다(입력이 새도 터미널로 가지 않게). `setAttributedString`으로 매번 새로 넣어야 이전 숨김 속성이 새 글자에 번지지 않는다.
+
+## 메모 편집기 커서가 가끔 안 보임 (2026-10-12, `spike/caret.swift`)
+
+- `NSTextInsertionIndicator`(macOS 14+ 커서)의 frame 폭은 줄 맨 앞·빈 줄에서 **0**, 줄 가운데에서 1. 기본 `NSTextView`도 같으므로 원인이 아님 (커서는 frame 밖으로 그려짐). `lineFragmentPadding`/inset을 바꿔도 같음
+- 실제 오버레이에서 클릭·↑ 이동 9곳: 커서 표시는 매번 존재, hidden 아님, 앱 활성·키 창·first responder 모두 참
+- 재현 못 한 남은 원인: macOS 14+ 협조적 활성화가 `NSApp.activate`를 거절하면 비활성 패널은 키 입력을 받지만 AppKit은 비활성 앱의 커서를 그리지 않음. 테스트 호스트·스크립트 앱은 비활성으로 만들 수 없어 확인 불가
+- 대응: 편집기가 키 창의 first responder면 앱 활성과 무관하게 커서를 그림(`shouldDrawInsertionPoint`), 줄 재배치 후 커서 위치 갱신, 활성화가 거절되면 unified log(category `Focus`)에 기록

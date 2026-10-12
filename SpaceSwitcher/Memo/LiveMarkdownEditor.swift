@@ -188,6 +188,14 @@ final class LiveMarkdownTextView: NSTextView {
 
     private var isRevealing: Bool { isEditable && window?.firstResponder === self }
 
+    /// AppKit hides the caret while the app is inactive. The overlay is a non-activating panel that
+    /// still takes typing when macOS refuses our activation (cooperative activation, macOS 14+), which
+    /// left typing with no visible caret; draw it whenever this editor really has the keyboard.
+    override var shouldDrawInsertionPoint: Bool {
+        super.shouldDrawInsertionPoint
+            || (isEditable && window?.isKeyWindow == true && window?.firstResponder === self && selectedRange().length == 0)
+    }
+
     func restyle(force: Bool = false) {
         guard let storage = textStorage, !hasMarkedText() else { return }
         let caretLines = isRevealing ? MarkdownLiveStyle.lines(touching: selectedRange(), in: string) : nil
@@ -200,6 +208,8 @@ final class LiveMarkdownTextView: NSTextView {
         layoutManager?.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
         fitHeight()
         needsDisplay = true
+        // The caret line was just re-laid out (markers shown or hidden); put the caret where it now is.
+        if window?.firstResponder === self { updateInsertionPointStateAndRestartTimer(true) }
     }
 
     /// Grows (or shrinks) the document to its text so the scroll view knows what there is to scroll
@@ -220,6 +230,7 @@ final class LiveMarkdownTextView: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if !stillSelecting { restyle() }
     }
+
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
