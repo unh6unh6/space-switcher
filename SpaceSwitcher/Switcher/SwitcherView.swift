@@ -31,6 +31,8 @@ final class SwitcherViewModel: ObservableObject {
     var memoEditText = ""
     @Published var memoEditVersion = 0
     @Published var memoFocusRequest = 0
+    /// The memo folder, for images (#21).
+    var memoDirectory: URL?
     /// First visible source line of the preview. Shift+↑↓ and mouse scrolling move it; remembered per
     /// desktop, across restarts (#25).
     @Published var memoScrollLine = 0 {
@@ -134,6 +136,7 @@ struct SwitcherView: View {
                                    canToggleTasks: !row.isLocked,
                                    scrollLine: model.memoScrollLine,
                                    focusRequest: model.memoFocusRequest,
+                                   baseDirectory: model.memoDirectory,
                                    onTextChange: model.onMemoChange,
                                    onDone: model.onMemoDone,
                                    onScroll: { model.memoScrollLine = $0 },

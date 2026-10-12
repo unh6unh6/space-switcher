@@ -250,6 +250,7 @@ final class SwitcherController {
 
     private func reloadRows() {
         let lockedMemos = MemoSettings.load().locked
+        model.memoDirectory = memos.directory
         let appsBySpace = SpaceApps.showIcons() ? SpaceAppsProvider.current() : nil
         model.rows = spaces.map { space in
             var row = SwitcherViewModel.Row(id: space.id, number: space.index, title: names.displayName(for: space),

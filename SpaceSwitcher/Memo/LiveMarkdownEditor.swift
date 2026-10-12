@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The memo editor shared by the overlay and the Option+E preview (#27). The text is the Markdown
 /// source; `MarkdownLiveStyle` runs restyle it so it reads like the rendered memo. The caret line(s)
@@ -15,6 +16,8 @@ struct LiveMarkdownEditor: NSViewRepresentable {
     var scrollLine: Int
     /// Bump to put the caret in the editor (Option+E's D).
     var focusRequest = 0
+    /// The memo folder: relative image paths resolve against it, dropped images are copied into it (#21).
+    var baseDirectory: URL?
     var onTextChange: (String) -> Void = { _ in }
     /// Right before a click places the caret: borrow the keyboard (`FocusReturner`).
     var onWantsFocus: () -> Void = {}
@@ -52,6 +55,10 @@ struct LiveMarkdownEditor: NSViewRepresentable {
         // Fill the visible height so a click below the last line (or in an empty memo) still lands.
         textView.minSize = CGSize(width: 0, height: scroll.contentSize.height)
         textView.isEditable = editable
+        if textView.baseURL != baseDirectory {
+            textView.baseURL = baseDirectory
+            textView.restyle(force: true)
+        }
         textView.canToggleTasks = canToggleTasks
         textView.onWantsFocus = { [weak coordinator] in coordinator?.parent?.onWantsFocus() }
         textView.onFocusChange = { [weak coordinator] in coordinator?.parent?.onFocusChange($0) }
@@ -141,6 +148,9 @@ final class LiveMarkdownTextView: NSTextView {
     var onDone: () -> Void = {}
     var onTextChange: (String) -> Void = { _ in }
     var onToggleTaskOutside: (Int) -> Void = { _ in }
+    /// Memo folder for images (#21).
+    var baseURL: URL?
+    private var imageObserver: NSObjectProtocol?
 
     private var revealed: ClosedRange<Int>?
 
@@ -170,6 +180,12 @@ final class LiveMarkdownTextView: NSTextView {
         view.isAutomaticSpellingCorrectionEnabled = false
         view.smartInsertDeleteEnabled = false
         view.typingAttributes = LiveStyleApplier.baseAttributes
+        view.registerForDraggedTypes([.fileURL, .png, .tiff])
+        // A remote image finished loading: draw it.
+        view.imageObserver = NotificationCenter.default.addObserver(forName: LiveImageCache.didLoad, object: nil, queue: .main) { [weak view] _ in
+            guard let view, view.string.contains("![") else { return }
+            view.restyle(force: true)
+        }
         return view
     }
 
@@ -202,7 +218,7 @@ final class LiveMarkdownTextView: NSTextView {
             ? MarkdownLiveStyle.expand(MarkdownLiveStyle.lines(touching: selectedRange(), in: string), in: string) : nil
         guard force || caretLines != revealed else { return }
         revealed = caretLines
-        LiveStyleApplier.apply(to: storage, revealing: caretLines, width: textContainer?.size.width ?? 0)
+        LiveStyleApplier.apply(to: storage, revealing: caretLines, width: textContainer?.size.width ?? 0, base: baseURL)
         typingAttributes = LiveStyleApplier.baseAttributes
         let all = NSRange(location: 0, length: storage.length)
         layoutManager?.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
@@ -263,6 +279,10 @@ final class LiveMarkdownTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let url = imageHit(at: point) {
+            NSWorkspace.shared.open(url)   // a drawn image opens in its default app (#21)
+            return
+        }
         if let hit = renderedHit(at: point) {
             switch hit {
             case .task(let line):
@@ -392,6 +412,98 @@ final class LiveMarkdownTextView: NSTextView {
 
     private enum Hit { case task(Int), link(String) }
 
+    // MARK: images (#21)
+
+    /// A drawn image under the pointer.
+    private func imageHit(at point: CGPoint) -> URL? {
+        guard let layout = layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let p = CGPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let index = layout.characterIndex(for: p, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index < storage.length, let url = storage.attribute(.liveImageURL, at: index, effectiveRange: nil) as? URL,
+              let drawing = storage.attribute(.liveDrawing, at: index, effectiveRange: nil) as? LiveDrawing else { return nil }
+        let fragment = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: index), effectiveRange: nil)
+        return CGRect(origin: fragment.origin, size: drawing.size).contains(p) ? url : nil
+    }
+
+    private var canInsertImages: Bool { isEditable && baseURL != nil }
+
+    private func imageFiles(_ pasteboard: NSPasteboard) -> [URL] {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter { (try? $0.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .image) == true }
+    }
+
+    override func dragOperation(for dragInfo: NSDraggingInfo, type: NSPasteboard.PasteboardType) -> NSDragOperation {
+        if canInsertImages, !imageFiles(dragInfo.draggingPasteboard).isEmpty { return .copy }
+        return super.dragOperation(for: dragInfo, type: type)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let files = imageFiles(sender.draggingPasteboard)
+        guard canInsertImages, !files.isEmpty else { return super.performDragOperation(sender) }
+        insertImageFiles(files, at: characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil)))
+        return true
+    }
+
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        if canInsertImages {
+            let files = imageFiles(pasteboard)
+            if !files.isEmpty {
+                insertImageFiles(files, at: selectedRange().location)
+                return
+            }
+            // Image data without text (a screenshot, an image copied in a browser): save it as a PNG.
+            if pasteboard.string(forType: .string) == nil, let image = NSImage(pasteboard: pasteboard),
+               let path = saveIntoMemoFolder(image) {
+                insertImages([path], at: selectedRange().location)
+                return
+            }
+        }
+        super.paste(sender)
+    }
+
+    /// Dropped or pasted image files: copied into the memo folder, one `![](…)` line each.
+    func insertImageFiles(_ files: [URL], at index: Int) {
+        insertImages(files.compactMap(copyIntoMemoFolder), at: index)
+    }
+
+    /// Copies a dropped file into `images/` (a file already in the memo folder is used where it is);
+    /// returns its path relative to the memo folder.
+    private func copyIntoMemoFolder(_ file: URL) -> String? {
+        guard let base = baseURL?.standardizedFileURL else { return nil }
+        let source = file.standardizedFileURL
+        if source.path.hasPrefix(base.path + "/") { return String(source.path.dropFirst(base.path.count + 1)) }
+        let folder = base.appendingPathComponent(MarkdownImages.folder, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+        let name = MarkdownImages.fileName(original: source.lastPathComponent, taken: taken)
+        do { try FileManager.default.copyItem(at: source, to: folder.appendingPathComponent(name)) } catch { return nil }
+        return MarkdownImages.folder + "/" + name
+    }
+
+    private func saveIntoMemoFolder(_ image: NSImage) -> String? {
+        guard let base = baseURL, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let folder = base.appendingPathComponent(MarkdownImages.folder, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+        let name = MarkdownImages.fileName(original: nil, taken: taken)
+        do { try png.write(to: folder.appendingPathComponent(name)) } catch { return nil }
+        return MarkdownImages.folder + "/" + name
+    }
+
+    /// Each image on its own line at `index`.
+    private func insertImages(_ paths: [String], at index: Int) {
+        guard !paths.isEmpty else { return }
+        let s = string as NSString
+        let at = min(index, s.length)
+        var text = paths.map(MarkdownImages.markdown).joined(separator: "\n")
+        if at > 0, s.character(at: at - 1) != 10 { text = "\n" + text }
+        if at < s.length, s.character(at: at) != 10 { text += "\n" }
+        let caret = at + (text as NSString).length
+        apply(MarkdownEditing.Replacement(range: NSRange(location: at, length: 0), string: text, selection: NSRange(location: caret, length: 0)))
+    }
+
     /// A checkbox or link drawn on a rendered (not caret) line under the pointer.
     private func renderedHit(at point: CGPoint) -> Hit? {
         guard let layout = layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return nil }
@@ -458,6 +570,8 @@ extension NSAttributedString.Key {
     static let liveLink = NSAttributedString.Key("SpaceSwitcher.liveLink")
     /// A `LiveDrawing` drawn in the (enlarged) line fragment of the character it is on: tables, images.
     static let liveDrawing = NSAttributedString.Key("SpaceSwitcher.liveDrawing")
+    /// The file or web address of a drawn image (click opens it).
+    static let liveImageURL = NSAttributedString.Key("SpaceSwitcher.liveImageURL")
 }
 
 enum LiveStyleApplier {
@@ -485,7 +599,7 @@ enum LiveStyleApplier {
         [.font: baseFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: baseParagraph]
     }
 
-    static func apply(to storage: NSTextStorage, revealing caretLines: ClosedRange<Int>?, width: CGFloat = 0) {
+    static func apply(to storage: NSTextStorage, revealing caretLines: ClosedRange<Int>?, width: CGFloat = 0, base: URL? = nil) {
         let text = storage.string
         let all = NSRange(location: 0, length: storage.length)
         storage.beginEditing()
@@ -497,7 +611,40 @@ enum LiveStyleApplier {
         for table in MarkdownTables.find(in: text) where !(caretLines?.overlaps(table.lines) ?? false) {
             drawTable(table, in: storage, width: width)
         }
+        for image in MarkdownImages.find(in: text) where !(caretLines?.contains(image.line) ?? false) {
+            drawImage(image, in: storage, width: width, base: base)
+        }
         storage.endEditing()
+    }
+
+    /// The image's line becomes as tall as the image and carries the drawing; its text shrinks to
+    /// nothing (kept, not hidden, so it stays on this line's fragment). A missing image keeps its
+    /// source visible so the broken path can be fixed.
+    private static func drawImage(_ image: MarkdownImage, in storage: NSTextStorage, width: CGFloat, base: URL?) {
+        guard let url = MarkdownImages.resolve(image.source, base: base) else { return }
+        let drawing: LiveDrawing
+        switch LiveImageCache.shared.state(for: url) {
+        case .loaded(let picture):
+            drawing = LiveImageDrawing(picture, size: MarkdownImages.displaySize(natural: picture.size, width: max(width, 1)))
+        case .loading:
+            drawing = LiveImagePlaceholder("이미지 불러오는 중…")
+        case .failed:
+            return
+        }
+        let s = storage.string as NSString
+        let start = MarkdownLiveStyle.lineStart(image.line, in: storage.string)
+        let line = s.lineRange(for: NSRange(location: start, length: 0))
+        var content = line
+        if content.length > 0, s.character(at: NSMaxRange(content) - 1) == 10 { content.length -= 1 }
+        let p = NSMutableParagraphStyle()
+        p.minimumLineHeight = drawing.size.height
+        p.maximumLineHeight = drawing.size.height
+        p.paragraphSpacing = 4
+        storage.addAttribute(.paragraphStyle, value: p, range: line)
+        storage.addAttributes([.font: NSFont.systemFont(ofSize: 0.1), .foregroundColor: NSColor.clear,
+                               .liveImageURL: url], range: content)
+        storage.removeAttribute(.liveHidden, range: content)
+        storage.addAttribute(.liveDrawing, value: drawing, range: NSRange(location: content.location, length: 1))
     }
 
     /// The table's first line grows to the drawn table's height and carries the drawing; the other
@@ -599,6 +746,8 @@ enum LiveStyleApplier {
             storage.addAttributes([.font: codeFont, .liveBlock: Block.code], range: line)
         case .table:
             if !raw { storage.addAttribute(.liveHidden, value: true, range: r) }
+        case .image:
+            break   // drawn (or left as source) by drawImage
         case .rule:
             if raw {
                 storage.addAttribute(.foregroundColor, value: LiveStyleApplier.markerColor, range: r)
@@ -805,5 +954,72 @@ final class LiveTableDrawing: NSObject, LiveDrawing {
         for width in columns.dropLast() { lineX += width; grid.move(to: CGPoint(x: lineX, y: y0)); grid.line(to: CGPoint(x: lineX, y: y0 + size.height - 1)) }
         NSColor.separatorColor.setStroke()
         grid.stroke()
+    }
+}
+
+/// A loaded image, scaled to fit.
+final class LiveImageDrawing: NSObject, LiveDrawing {
+    private let image: NSImage
+    let size: CGSize
+
+    init(_ image: NSImage, size: CGSize) {
+        self.image = image
+        self.size = size
+    }
+
+    func draw(in rect: CGRect) {
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+/// A one-line note in place of an image that is still loading.
+final class LiveImagePlaceholder: NSObject, LiveDrawing {
+    private let text: NSAttributedString
+    let size: CGSize
+
+    init(_ message: String) {
+        text = NSAttributedString(string: message, attributes: [.font: LiveStyleApplier.baseFont, .foregroundColor: NSColor.secondaryLabelColor])
+        size = CGSize(width: ceil(text.size().width) + 8, height: LiveStyleApplier.fontSize + 8)
+    }
+
+    func draw(in rect: CGRect) {
+        text.draw(at: CGPoint(x: rect.minX + 4, y: rect.minY + 3))
+    }
+}
+
+/// Images by URL. Local files load right away (and reload when the file changes); web images load
+/// in the background and post `didLoad`.
+final class LiveImageCache {
+    static let shared = LiveImageCache()
+    static let didLoad = Notification.Name("LiveImageCache.didLoad")
+
+    enum State { case loaded(NSImage), loading, failed }
+
+    private var remote: [URL: State] = [:]
+    private var local: [URL: (modified: Date, image: NSImage)] = [:]
+
+    func state(for url: URL) -> State {
+        if url.isFileURL {
+            guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else {
+                return .failed   // not there (yet): not cached, a drop may add it
+            }
+            if let cached = local[url], cached.modified == modified { return .loaded(cached.image) }
+            guard let image = NSImage(contentsOf: url) else { return .failed }
+            local[url] = (modified, image)
+            return .loaded(image)
+        }
+        if let state = remote[url] { return state }
+        remote[url] = .loading
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            let image = data.flatMap(NSImage.init(data:))
+            DispatchQueue.main.async {
+                self.remote[url] = image.map(State.loaded) ?? .failed
+                NotificationCenter.default.post(name: Self.didLoad, object: nil)
+            }
+        }.resume()
+        return .loading
     }
 }

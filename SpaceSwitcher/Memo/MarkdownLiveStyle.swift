@@ -23,6 +23,8 @@ struct LiveStyleRun: Equatable {
         case rule
         /// A whole line of a pipe table (#21): hidden and drawn as a table away from the caret.
         case table
+        /// A line holding just an image (#21): drawn as the image away from the caret.
+        case image
     }
 
     let range: NSRange
@@ -38,6 +40,7 @@ enum MarkdownLiveStyle {
         let s = text as NSString
         var runs: [LiveStyleRun] = []
         let tableLines = Set(MarkdownTables.find(in: text).flatMap { Array($0.lines) })
+        let imageLines = Set(MarkdownImages.find(in: text).map(\.line))
         var fenceTicks = 0   // backticks of the open fence; 0 = not in a code block
         var line = 0
         var start = 0
@@ -52,7 +55,9 @@ enum MarkdownLiveStyle {
             let ticks = trimmed.prefix(while: { $0 == "`" }).count
             let tickStart = start + (s.substring(with: lineRange) as NSString)
                 .range(of: "`").location.clampedToZero
-            if tableLines.contains(line) {
+            if imageLines.contains(line) {
+                add(start, end - start, .image)
+            } else if tableLines.contains(line) {
                 add(start, end - start, .table)
                 let delimiterRow = !trimmed.isEmpty && trimmed.allSatisfy { "|-: ".contains($0) }
                 if delimiterRow {

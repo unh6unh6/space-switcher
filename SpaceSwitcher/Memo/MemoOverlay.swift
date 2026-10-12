@@ -73,6 +73,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
         if !spaces.isEmpty { scroll.prune(keeping: Set(spaces.map(\.id))) }
         model.title = current.map(names.displayName) ?? "전체화면"
         model.canEdit = current != nil
+        model.baseDirectory = memos.directory
         model.isLocked = settings.isLocked(current?.id)
 
         let fileText = current.flatMap { memos.memo(for: $0.id) }
@@ -254,6 +255,8 @@ final class MemoOverlayModel: ObservableObject {
     @Published var isCollapsed = false
     /// First visible source line (#25).
     @Published var scrollLine = 0
+    /// The memo folder, for images (#21).
+    @Published var baseDirectory: URL?
 
     var onTextChange: (String) -> Void = { _ in }
     var onWantsFocus: () -> Void = {}
@@ -364,6 +367,7 @@ struct MemoOverlayView: View {
                                editable: model.canEdit && !model.isLocked,
                                canToggleTasks: model.canEdit && !model.isLocked,
                                scrollLine: model.scrollLine,
+                               baseDirectory: model.baseDirectory,
                                onTextChange: model.onTextChange,
                                onWantsFocus: model.onWantsFocus,
                                onFocusChange: model.onFocusChange,
