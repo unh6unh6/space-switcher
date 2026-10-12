@@ -279,7 +279,68 @@ final class LiveMarkdownTextView: NSTextView {
             onDone()
             return
         }
+        if handleShortcut(event) { return }
         super.keyDown(with: event)
+    }
+
+    // MARK: editing shortcuts (#21)
+
+    /// ⌘ keys come here before `keyDown`; take ours while this editor has the keyboard.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, handleShortcut(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Physical keys, so they work with any input source (a Korean layout reports jamo for ⌘B).
+    private enum ShortcutKey {
+        static let b: UInt16 = 11, i: UInt16 = 34, e: UInt16 = 14, k: UInt16 = 40, l: UInt16 = 37
+    }
+
+    private func handleShortcut(_ event: NSEvent) -> Bool {
+        guard isEditable, !hasMarkedText(),
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return false }
+        let text = string, selection = selectedRange()
+        switch event.keyCode {
+        case ShortcutKey.b: apply(MarkdownEditing.toggleWrap("**", text: text, selection: selection))
+        case ShortcutKey.i: apply(MarkdownEditing.toggleWrap("*", text: text, selection: selection))
+        case ShortcutKey.e: apply(MarkdownEditing.toggleWrap("`", text: text, selection: selection))
+        case ShortcutKey.k: apply(MarkdownEditing.link(text: text, selection: selection))
+        case ShortcutKey.l: apply(MarkdownEditing.toggleTask(text: text, selection: selection))
+        default: return false
+        }
+        return true
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), let r = MarkdownEditing.newline(text: string, selection: selectedRange()) {
+            apply(r)
+        } else {
+            super.insertNewline(sender)
+        }
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), let r = MarkdownEditing.indent(text: string, selection: selectedRange(), outdent: false) {
+            apply(r)
+        } else {
+            super.insertTab(sender)
+        }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), let r = MarkdownEditing.indent(text: string, selection: selectedRange(), outdent: true) {
+            apply(r)
+        } else {
+            super.insertBacktab(sender)
+        }
+    }
+
+    /// One undoable edit.
+    func apply(_ r: MarkdownEditing.Replacement) {
+        guard shouldChangeText(in: r.range, replacementString: r.string) else { return }
+        textStorage?.replaceCharacters(in: r.range, with: r.string)
+        didChangeText()
+        setSelectedRange(r.selection)
     }
 
     // MARK: line-end moves (#29)
