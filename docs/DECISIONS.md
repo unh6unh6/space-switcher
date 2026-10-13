@@ -10,7 +10,7 @@ SPEC.md와 다르게 가거나 SPEC이 열어 둔 것을 정한 기록. **여기
 | Apple 계정 | 유료 Developer Program **없이** 진행, 공증 안 함 (2026-09-29) | SPEC은 Developer ID + 공증. 비용 없이 나+지인용. 공증은 #6 |
 | 서명 | 자체 서명 인증서 **`SpaceSwitcher Signing`** 하나로 Debug·Release·DMG 전부 서명 | TCC(손쉬운 사용)가 서명 기준이라, 고정 인증서면 재빌드·업데이트해도 권한 유지. 인증서를 바꾸면 모든 사용자가 권한을 다시 줘야 함 |
 | 번들 ID | `io.github.unh6unh6.SpaceSwitcher` | 바꾸면 이름·설정·권한이 초기화되므로 고정 |
-| 저장소 | 공개 `unh6unh6/SpaceSwitcher`, 브랜치 `main` | 지인이 Releases에서 받을 수 있게. 커밋 이메일 공개는 사용자가 수락 |
+| 저장소 | 공개 `unh6unh6/space-switcher`, 브랜치 `main` (2026-10-14 `SpaceSwitcher`에서 이름 변경) | 지인이 Releases에서 받을 수 있게. 커밋 이메일 공개는 사용자가 수락. 소문자-하이픈은 GitHub 관례; 예전 주소는 GitHub가 자동 연결하므로 같은 계정에 `SpaceSwitcher` 저장소를 다시 만들지 말 것. 앱 이름·번들 ID·DMG·cask 토큰은 그대로 |
 | 배포 채널 | GitHub Releases의 DMG + **전용 Homebrew tap** `unh6unh6/homebrew-tap` (2026-09-30) | 공식 homebrew/cask는 공증 필요. 전용 tap은 한 줄 설치(`unh6unh6/tap/spaceswitcher`). 앱 저장소를 tap으로 겸용하는 안은 설치가 두 줄이라 기각 |
 | quarantine | cask의 `postflight_steps`에서 `xattr -dr com.apple.quarantine` | tap 설치자는 "그래도 열기" 불필요. DMG 설치자는 README 안내대로 한 번 허용 |
 | 업데이트 | DMG 덮어쓰기 또는 `brew upgrade`. 자동 업데이트 없음 | 외부 의존성 0 유지. 알림/Sparkle은 #5 |

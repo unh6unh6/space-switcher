@@ -32,7 +32,7 @@ brew install --cask unh6unh6/tap/spaceswitcher
 
 ### 1. 다운로드
 
-[**Releases**](https://github.com/unh6unh6/SpaceSwitcher/releases/latest)에서 `SpaceSwitcher-x.y.z.dmg`를 받아 엽니다.
+[**Releases**](https://github.com/unh6unh6/space-switcher/releases/latest)에서 `SpaceSwitcher-x.y.z.dmg`를 받아 엽니다.
 창에 나오는 **SpaceSwitcher**를 옆의 **Applications** 폴더로 드래그합니다.
 
 ### 2. 처음 실행 허용
@@ -144,7 +144,7 @@ Homebrew: `brew uninstall --cask --zap spaceswitcher` (이름·설정·기본 �
 
 ## 개발
 
-Swift / AppKit + SwiftUI, 외부 의존성 없음. 설계는 [`SPEC.md`](SPEC.md)와 [`docs/DECISIONS.md`](docs/DECISIONS.md)(SPEC과 달라진 결정), 개발 환경은 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), 진행 중인 작업은 [GitHub 이슈](https://github.com/unh6unh6/SpaceSwitcher/issues).
+Swift / AppKit + SwiftUI, 외부 의존성 없음. 설계는 [`SPEC.md`](SPEC.md)와 [`docs/DECISIONS.md`](docs/DECISIONS.md)(SPEC과 달라진 결정), 개발 환경은 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), 진행 중인 작업은 [GitHub 이슈](https://github.com/unh6unh6/space-switcher/issues).
 
 ```sh
 brew install xcodegen

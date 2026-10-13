@@ -21,8 +21,8 @@
 
 ## 릴리스 후
 
-- 마일스톤 닫기: `gh api -X PATCH repos/unh6unh6/SpaceSwitcher/milestones/<번호> -f state=closed`
-- 다음 마일스톤 만들기: `gh api repos/unh6unh6/SpaceSwitcher/milestones -f title=v0.3.0`
+- 마일스톤 닫기: `gh api -X PATCH repos/unh6unh6/space-switcher/milestones/<번호> -f state=closed`
+- 다음 마일스톤 만들기: `gh api repos/unh6unh6/space-switcher/milestones -f title=v0.3.0`
 - 실제 설치 검증 (설치본을 건드리지 않게 임시 폴더로):
   ```sh
   brew install --cask --appdir="$TMPDIR/Apps" unh6unh6/tap/spaceswitcher

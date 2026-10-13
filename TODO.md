@@ -1,6 +1,6 @@
 # SpaceSwitcher TODO
 
-> **MVP(Phase S~7) 완료 · v0.1.0 릴리스됨.** 이 파일은 기록용. 이후 작업은 [GitHub 이슈](https://github.com/unh6unh6/SpaceSwitcher/issues).
+> **MVP(Phase S~7) 완료 · v0.1.0 릴리스됨.** 이 파일은 기록용. 이후 작업은 [GitHub 이슈](https://github.com/unh6unh6/space-switcher/issues).
 
 > 표시: 👤 = 사용자가 직접 해야 함 (GUI 조작, 비밀번호, 권한 부여) · 🤖 = Claude가 함 · ⏱ = 예상 시간
 > 한 Phase가 끝나면 커밋: `phaseN: <요약>`. 상세 동작은 `SPEC.md` 참고.
@@ -135,7 +135,7 @@ SPEC §2의 가정이 실제 맥(macOS 27)에서 맞는지 확인. **틀린 게 
 
 ## Phase 7 — 지인 배포 ⏱ 약 2시간 (최초), 이후 릴리스마다 약 5분
 
-- [x] 🤖 `git branch -m main` → `gh repo create unh6unh6/SpaceSwitcher --public --source . --push` (Phase S에서 연기됨, 실행 전 사용자 확인)
+- [x] 🤖 `git branch -m main` → `gh repo create unh6unh6/space-switcher --public --source . --push` (Phase S에서 연기됨, 실행 전 사용자 확인)
 - [x] 🤖 `project.yml`에 버전 필드 정리 (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`)
 - [x] 🤖 `scripts/release.sh <버전>`:
   - Universal(arm64+x86_64) Release 빌드
@@ -160,8 +160,8 @@ SPEC §2의 가정이 실제 맥(macOS 27)에서 맞는지 확인. **틀린 게 
 
 ## 이후 작업 → GitHub 이슈 (2026-09-30부터)
 
-MVP(Phase S~7) 이후의 기능 개선·버그는 이 파일이 아니라 **[GitHub 이슈](https://github.com/unh6unh6/SpaceSwitcher/issues)**로 관리한다.
+MVP(Phase S~7) 이후의 기능 개선·버그는 이 파일이 아니라 **[GitHub 이슈](https://github.com/unh6unh6/space-switcher/issues)**로 관리한다.
 
-- 이슈 여러 개를 **마일스톤**(예: [`v0.2.0`](https://github.com/unh6unh6/SpaceSwitcher/milestone/1))으로 묶어 릴리스 단위로 작업
+- 이슈 여러 개를 **마일스톤**(예: [`v0.2.0`](https://github.com/unh6unh6/space-switcher/milestone/1))으로 묶어 릴리스 단위로 작업
 - 커밋은 로컬에 쌓고 메시지에 `Closes #N` → 마일스톤이 끝나면 `./scripts/release.sh <버전>` (푸시되면서 이슈 자동 종료)
 - 옮겨진 항목: #1 새 데스크탑 추가 · #2 다중 모니터 · #3 전체화면 앱 목록 · #4 아이콘 · #5 업데이트 알림 · #6 공증

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SpaceSwitcher is a macOS menu-bar agent app (`LSUIElement`, no Dock icon). It lets you name desktops (Spaces) and switch between them with an IntelliJ-style switcher (`Option+E`). It's written in Swift with AppKit and SwiftUI, has no external dependencies, and targets macOS 14+ as a universal binary.
 
-**Answer the user in Korean.** This directory is its own git repo (`unh6unh6/SpaceSwitcher`, branch `main`). It is separate from any parent workspace.
+**Answer the user in Korean.** This directory is its own git repo (`unh6unh6/space-switcher`, branch `main`). It is separate from any parent workspace.
 
 ## Start of every session
 

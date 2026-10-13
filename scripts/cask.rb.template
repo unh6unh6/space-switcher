@@ -2,10 +2,10 @@ cask "spaceswitcher" do
   version "{{VERSION}}"
   sha256 "{{SHA256}}"
 
-  url "https://github.com/unh6unh6/SpaceSwitcher/releases/download/v#{version}/SpaceSwitcher-#{version}.dmg"
+  url "https://github.com/unh6unh6/space-switcher/releases/download/v#{version}/SpaceSwitcher-#{version}.dmg"
   name "SpaceSwitcher"
   desc "Name desktops (Spaces) and switch between them with Option+E"
-  homepage "https://github.com/unh6unh6/SpaceSwitcher"
+  homepage "https://github.com/unh6unh6/space-switcher"
 
   depends_on macos: :sonoma
 
