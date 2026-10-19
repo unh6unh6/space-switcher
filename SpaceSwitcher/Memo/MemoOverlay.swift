@@ -50,7 +50,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
         }
         // A click in another app takes the keyboard back; stop editing quietly.
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self, model.isFocused else { return }
+            guard let self, isEditing else { return }
             endFocus(returnToPreviousApp: false)
         }
         panel.applyBackground(settings.overlayBackground)
@@ -66,7 +66,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
         if moved {
             // Leaving a desktop mid-typing: its text is saved there, the keyboard goes back.
             flushSave()
-            if model.isFocused { endFocus(returnToPreviousApp: false) }
+            if isEditing { endFocus(returnToPreviousApp: false) }
             scroll.set(model.scrollLine, for: shownSpace?.id)
         }
         currentSpace = current
@@ -151,10 +151,19 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
 
     private func takeFocus() {
         guard model.canEdit, !model.isLocked else { return }
-        let startsEditing = !focus.isBorrowing
+        let startsEditing = !model.isFocused
         focus.take(for: panel)
-        if startsEditing { startFromTemplate() }
+        guard startsEditing else { return }
+        startFromTemplate()
+        // The click may land on a text view that is already first responder (AppKit made it so when
+        // the panel became key), which reports no focus change: start editing here.
+        model.isFocused = true
+        applyOpacity(hovering: false)
+        updateVisibility()
     }
+
+    /// Typing in the memo, or the keyboard still borrowed for it.
+    private var isEditing: Bool { model.isFocused || focus.isBorrowing }
 
     /// A desktop without a memo starts from the template (#36), caret at its end. Not saved until changed.
     private func startFromTemplate() {
@@ -203,7 +212,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
 
     private func toggleLock() {
         guard let space = currentSpace else { return }
-        if model.isFocused { endFocus(returnToPreviousApp: true) }
+        if isEditing { endFocus(returnToPreviousApp: true) }
         var s = MemoSettings.load()
         s.setLocked(!s.isLocked(space.id), for: space.id)
         s.save()
@@ -243,7 +252,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
 
     /// Collapse/expand this desktop's memo only (#24).
     private func toggleCollapse() {
-        if model.isFocused { endFocus(returnToPreviousApp: true) }
+        if isEditing { endFocus(returnToPreviousApp: true) }
         var s = MemoSettings.load()
         var layout = s.layout(for: currentSpace?.id)
         if !layout.collapsed { layout.frame = panel.frame }  // expanding later restores this frame
