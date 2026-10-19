@@ -8,6 +8,9 @@ final class FocusReturner {
     private var borrowed = false
     private var previous: NSRunningApplication?
 
+    /// Between `take` and `release`/`giveBack`: the user clicked in to type.
+    var isBorrowing: Bool { borrowed }
+
     func take(for window: NSWindow) {
         if !borrowed {
             let front = NSWorkspace.shared.frontmostApplication

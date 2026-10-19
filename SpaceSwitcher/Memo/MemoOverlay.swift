@@ -151,13 +151,14 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
 
     private func takeFocus() {
         guard model.canEdit, !model.isLocked else { return }
+        let startsEditing = !focus.isBorrowing
         focus.take(for: panel)
-        startFromTemplate()
+        if startsEditing { startFromTemplate() }
     }
 
     /// A desktop without a memo starts from the template (#36), caret at its end. Not saved until changed.
     private func startFromTemplate() {
-        guard let space = shownSpace, !model.isFocused,
+        guard let space = shownSpace,
               let text = MemoTemplate.start(memo: model.text, template: settings.template, name: names.displayName(for: space))
         else { return }
         sync.startFromTemplate(text)
@@ -173,6 +174,16 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
     }
 
     private func focusChanged(_ focused: Bool) {
+        // AppKit hands a freshly shown panel's first text view the focus by itself (initial first
+        // responder). That is not the user editing: it hid the empty-memo hint and skipped the
+        // template (#36). Only a click (`takeFocus`) starts editing.
+        if focused, !focus.isBorrowing {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !focus.isBorrowing else { return }
+                panel.makeFirstResponder(nil)
+            }
+            return
+        }
         model.isFocused = focused
         if !focused { flushSave(); dropUntouchedTemplate() }
         applyOpacity(hovering: false)
