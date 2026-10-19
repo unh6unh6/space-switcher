@@ -59,8 +59,16 @@ struct MemoSettings: Equatable {
 
     /// Where the overlay sits on one desktop (#24): its own frame and collapse state.
     struct Layout: Codable, Equatable {
+        /// The expanded frame, also while collapsed (the bar hangs from its top edge).
         var frame: CGRect?
         var collapsed = false
+
+        /// The collapsed bar was dragged or resized to `bar` (#32): the expanded memo follows it,
+        /// keeping its height and taking the bar's top-left corner and width.
+        mutating func moveCollapsed(to bar: CGRect) {
+            let height = frame?.height ?? MemoSettings.defaultSize.height
+            frame = CGRect(x: bar.minX, y: bar.maxY - height, width: bar.width, height: height)
+        }
     }
 
     var overlayEnabled = false

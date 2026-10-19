@@ -107,6 +107,21 @@ final class MemoSettingsTests: XCTestCase {
         XCTAssertEqual(s.layout(for: nil), .init(frame: rectB, collapsed: true))
     }
 
+    // #32: dragging the collapsed bar moves the expanded memo too — same top-left, same height.
+    func testMovingTheCollapsedBarMovesTheExpandedFrame() {
+        var layout = MemoSettings.Layout(frame: CGRect(x: 100, y: 300, width: 320, height: 220), collapsed: true)
+        layout.moveCollapsed(to: CGRect(x: 500, y: 700, width: 320, height: 34))
+        XCTAssertEqual(layout.frame, CGRect(x: 500, y: 734 - 220, width: 320, height: 220))
+        XCTAssertTrue(layout.collapsed)
+    }
+
+    func testMovingTheCollapsedBarWithoutAFrameUsesTheDefaultSize() {
+        var layout = MemoSettings.Layout(frame: nil, collapsed: true)
+        layout.moveCollapsed(to: CGRect(x: 10, y: 600, width: 280, height: 34))
+        let h = MemoSettings.defaultSize.height
+        XCTAssertEqual(layout.frame, CGRect(x: 10, y: 634 - h, width: 280, height: h))
+    }
+
     func testLayoutsSurviveSaveAndLoad() {
         var s = MemoSettings()
         s.setLayout(.init(frame: rectA, collapsed: true), for: "A")

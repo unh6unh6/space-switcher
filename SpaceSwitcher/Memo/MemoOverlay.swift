@@ -231,8 +231,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
         guard !applyingFrame else { return }
         var s = MemoSettings.load()
         var layout = s.layout(for: currentSpace?.id)
-        guard !layout.collapsed else { return }
-        layout.frame = panel.frame
+        if layout.collapsed { layout.moveCollapsed(to: panel.frame) } else { layout.frame = panel.frame }
         s.setLayout(layout, for: currentSpace?.id)
         settings = s
         applyingFrame = true
