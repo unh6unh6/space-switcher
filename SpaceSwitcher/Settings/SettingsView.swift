@@ -17,6 +17,12 @@ final class SettingsModel: ObservableObject {
     @Published var menuBar = MenuBarTitle.Settings.load() {
         didSet { menuBar.save() }
     }
+    /// Desktop categories (#35); the switcher's C key also changes them.
+    @Published var categories = DesktopCategories.load() {
+        didSet { if !syncingCategories { categories.save() } }
+    }
+    private var syncingCategories = false
+    @Published var newCategory = ""
     /// Merges only the fields this tab edits into the latest stored settings, because the overlay
     /// saves its own frame/collapsed state meanwhile; saving a stale copy would undo a drag.
     @Published var memo = MemoSettings.load() {
@@ -58,6 +64,12 @@ final class SettingsModel: ObservableObject {
         self.setSwitcherSuspended = setSwitcherSuspended
         NotificationCenter.default.addObserver(forName: NameStore.didChange, object: names, queue: .main) { [weak self] _ in
             self?.reload()
+        }
+        NotificationCenter.default.addObserver(forName: DesktopCategories.didChange, object: nil, queue: .main) { [weak self] _ in
+            guard let self, !syncingCategories else { return }
+            syncingCategories = true
+            categories = DesktopCategories.load()
+            syncingCategories = false
         }
         // Menu bar toggle and the overlay itself also change memo settings; mirror them here.
         NotificationCenter.default.addObserver(forName: MemoSettings.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -107,6 +119,10 @@ final class SettingsModel: ObservableObject {
     func openMemoFolder() {
         try? FileManager.default.createDirectory(at: memos.directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(memos.directory)
+    }
+
+    func addCategory() {
+        if categories.add(newCategory) { newCategory = "" } else { NSSound.beep() }
     }
 
     func removeUnusedNames() {
@@ -286,6 +302,7 @@ private struct DesktopsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            CategoriesEditor(model: model)
             List(model.spaces) { space in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -296,6 +313,16 @@ private struct DesktopsTab: View {
                         NameField(space: space, names: model.names)
                         if space.isCurrent {
                             Text("현재").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !model.categories.categories.isEmpty {
+                            Picker("", selection: Binding(
+                                get: { model.categories.category(for: space.id)?.id ?? "" },
+                                set: { model.categories.assign($0.isEmpty ? nil : $0, to: space.id) })) {
+                                Text(DesktopCategories.uncategorizedTitle).tag("")
+                                ForEach(model.categories.categories) { Text($0.name).tag($0.id) }
+                            }
+                            .labelsHidden()
+                            .frame(width: 120)
                         }
                     }
                     MemoField(space: space, names: model.names, memos: model.memos)
@@ -311,6 +338,60 @@ private struct DesktopsTab: View {
                     .disabled(model.unusedNames == 0)
             }
         }
+    }
+}
+
+/// Category list (#35): add, rename (Enter), reorder, delete. Order = group order in Option+E.
+private struct CategoriesEditor: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("카테고리").font(.headline)
+            ForEach(model.categories.categories) { category in
+                HStack(spacing: 6) {
+                    CategoryNameField(category: category, model: model)
+                    Button { model.categories.move(category.id, by: -1) } label: { Image(systemName: "chevron.up") }
+                        .disabled(model.categories.categories.first?.id == category.id)
+                    Button { model.categories.move(category.id, by: 1) } label: { Image(systemName: "chevron.down") }
+                        .disabled(model.categories.categories.last?.id == category.id)
+                    Button { model.categories.remove(category.id) } label: { Image(systemName: "trash") }
+                        .help("삭제 (이 카테고리의 데스크탑은 미분류로)")
+                }
+                .buttonStyle(.borderless)
+            }
+            HStack(spacing: 6) {
+                TextField("새 카테고리 (예: todo)", text: $model.newCategory)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(model.addCategory)
+                Button("추가", action: model.addCategory)
+                    .disabled(model.newCategory.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Text("Option+E 목록이 이 순서대로 묶여 보여요. 목록에서 C를 누르면 선택한 데스크탑의 카테고리가 바뀌어요.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CategoryNameField: View {
+    let category: DesktopCategories.Category
+    @ObservedObject var model: SettingsModel
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("", text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { draft = category.name }
+            .onChange(of: category.name) { _, name in draft = name }
+            .onSubmit(save)
+            .onChange(of: focused) { _, isFocused in if !isFocused { save() } }
+    }
+
+    private func save() {
+        model.categories.rename(category.id, to: draft)
+        draft = model.categories.categories.first { $0.id == category.id }?.name ?? draft
     }
 }
 

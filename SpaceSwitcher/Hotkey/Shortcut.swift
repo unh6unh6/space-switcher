@@ -74,6 +74,7 @@ enum KeyCode {
     static let e: UInt16 = 14
     static let r: UInt16 = 15
     static let d: UInt16 = 2
+    static let c: UInt16 = 8
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
     static let escape: UInt16 = 53

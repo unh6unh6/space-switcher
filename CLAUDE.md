@@ -97,6 +97,7 @@ macOS has no public Spaces API, so the app combines three mechanisms.
   - Keys stay on the tap even in Sticky. Only inline rename activates the app.
 - `SwitcherPanel` is a non-activating `NSPanel` at `.popUpMenu` level with `[.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`. `SwitcherView` puts the memo preview (#20) to the right of the list, as tall as the list (min 240) so the panel never resizes while moving; `recenter()` after the preview appears for an edit.
 - The initial selection comes from `InitialSelection` in `Store/MRUTracker.swift`: the current desktop by default, or the MRU previous one.
+- Categories (#35): `Store/DesktopCategories` (pure; UserDefaults `desktopCategories`, one category per `Space.id`) groups the rows — `ordered()` is the row order the machine and panel share (category order, uncategorized last, macOS order inside), `Row.groupTitle` marks each group's first row. Digits map to Desktop N (`switchToDesktop`), not the Nth row. C (`cycleCategory`, Sticky only) moves the selected desktop to the next category; the controller regroups and re-highlights it on the tap thread.
 
 **Other components:**
 - Per-desktop app icons in the switcher (#14): `Spaces/SpaceApps` (pure: filter layer-0, ≥50 px, regular apps; sort by window count) fed by `SpaceAppsProvider` (`CGWindowList` + `CGSCopySpacesForWindows`). UserDefaults `switcherShowAppIcons`. The controller warms the panel up at `start()` to keep the first open under 100 ms.

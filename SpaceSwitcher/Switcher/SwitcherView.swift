@@ -15,6 +15,8 @@ final class SwitcherViewModel: ObservableObject {
         var memo: String? = nil
         /// Read-only memo (#27).
         var isLocked = false
+        /// Category header shown above this row: it starts a group (#35).
+        var groupTitle: String? = nil
     }
 
     @Published var rows: [Row] = []
@@ -26,6 +28,8 @@ final class SwitcherViewModel: ObservableObject {
     /// Memo preview beside the list (#20): on in Settings and at least one desktop has a memo.
     @Published var showsMemoPreview = false
     @Published var editingMemoRow: Int?
+    /// Any category exists: the C key does something (#35).
+    @Published var hasCategories = false
     /// While D-editing (#27): the editor's text, and the version it was opened with (so typing is never
     /// replaced by a reload); bump `memoFocusRequest` to put the caret in.
     var memoEditText = ""
@@ -74,6 +78,8 @@ struct SwitcherView: View {
     static let previewWidth: CGFloat = 380
     /// The preview never gets shorter than this, even next to a 2-desktop list.
     static let previewMinHeight: CGFloat = 240
+    /// A category header above a group of rows (#35).
+    static let headerHeight: CGFloat = 20
 
     @ObservedObject var model: SwitcherViewModel
     @FocusState private var fieldFocused: Bool
@@ -97,19 +103,29 @@ struct SwitcherView: View {
     /// As tall as the list (min 240) and never taller: a long memo scrolls instead of stretching
     /// the panel, and moving the selection never resizes it.
     private var previewHeight: CGFloat {
-        let listHeight = CGFloat(model.rows.count) * (Self.rowHeight + 2) + 28
+        let headers = CGFloat(model.rows.filter { $0.groupTitle != nil }.count) * (Self.headerHeight + 2)
+        let listHeight = CGFloat(model.rows.count) * (Self.rowHeight + 2) + headers + 28
         return max(listHeight, Self.previewMinHeight)
     }
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(model.rows.enumerated()), id: \.element.id) { i, row in
+                if let title = row.groupTitle {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: Self.headerHeight, alignment: .bottomLeading)
+                }
                 rowView(row, index: i)
             }
             if showsPreview { Spacer(minLength: 0) }
             Text(model.editingMemoRow != nil
                  ? "자동 저장 · Esc 완료"
-                 : "↑↓ 이동 · Enter 전환 · 1–9 바로 · R 이름 · D 메모" + (showsPreview ? " · ⇧↑↓ 스크롤" : "") + " · Esc")
+                 : "↑↓ 이동 · Enter 전환 · 1–9 바로 · R 이름 · D 메모" + (model.hasCategories ? " · C 분류" : "")
+                    + (showsPreview ? " · ⇧↑↓ 스크롤" : "") + " · Esc")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.top, 6)

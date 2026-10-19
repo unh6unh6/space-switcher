@@ -87,6 +87,13 @@ final class KeyMapperTests: XCTestCase {
         XCTAssertEqual(map(KeyCode.d, 0), .pass)   // idle: typing "d" is untouched
     }
 
+    // #35: C moves the selected desktop to the next category.
+    func testCategoryKey() {
+        XCTAssertEqual(map(KeyCode.c, 0, capturing: true), .consume(.cycleCategory))
+        XCTAssertEqual(map(KeyCode.c, 0, repeat: true, capturing: true), .consume(nil))
+        XCTAssertEqual(map(KeyCode.c, 0), .pass)
+    }
+
     func testRenameKeyAutorepeatIgnored() {
         XCTAssertEqual(map(KeyCode.r, 0, repeat: true, capturing: true), .consume(nil))
     }

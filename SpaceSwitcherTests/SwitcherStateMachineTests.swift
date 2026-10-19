@@ -103,9 +103,10 @@ final class SwitcherStateMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .sticky(selection: 2))
     }
 
+    // Rows may be grouped by category (#35); a digit still means "Desktop N", not the Nth row.
     func testStickyDigitSwitchesToThatDesktop() {
         var m = sticky(count: 4)
-        XCTAssertEqual(m.handle(.digit(3)), .switchTo(2))
+        XCTAssertEqual(m.handle(.digit(3)), .switchToDesktop(3))
         XCTAssertEqual(m.state, .idle)
     }
 
@@ -114,6 +115,14 @@ final class SwitcherStateMachineTests: XCTestCase {
         XCTAssertNil(m.handle(.digit(5)))
         XCTAssertNil(m.handle(.digit(0)))
         XCTAssertEqual(m.state, .sticky(selection: 1))
+    }
+
+    func testStickyCategoryKeyActsOnTheSelection() {
+        var m = sticky(initial: 2)
+        XCTAssertEqual(m.handle(.cycleCategory), .cycleCategory(2))
+        XCTAssertEqual(m.state, .sticky(selection: 2))
+        var h = holding(initial: 1)
+        XCTAssertNil(h.handle(.cycleCategory), "only in the popup, not while cycling")
     }
 
     func testStickyEnterSwitchesToSelection() {

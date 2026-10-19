@@ -1,7 +1,7 @@
 import Foundation
 
 /// The switcher's behaviour from SPEC §3.1, free of UI and system events.
-/// Selections are 0-based row indexes in display order (desktop 1 = row 0).
+/// Selections are 0-based row indexes in display order (desktop order, or grouped by category, #35).
 struct SwitcherStateMachine {
     enum State: Equatable {
         case idle
@@ -32,6 +32,8 @@ struct SwitcherStateMachine {
         case beginDescribe, endDescribe
         /// Shift+↑↓: scroll the memo preview by a step (#20).
         case scrollMemo(Int)
+        /// C: the selected desktop goes to the next category (#35).
+        case cycleCategory
         case clickOutside
         /// The panel vanished without going through the machine (e.g. the app was hidden).
         case dismissed
@@ -43,9 +45,12 @@ struct SwitcherStateMachine {
         case hide
         /// Hide the panel and switch to this row.
         case switchTo(Int)
+        /// Hide the panel and switch to "Desktop N" (a digit; rows may be grouped out of order, #35).
+        case switchToDesktop(Int)
         case rename(Int)
         case describe(Int)
         case scrollMemo(Int)
+        case cycleCategory(Int)
     }
 
     private(set) var state: State = .idle
@@ -118,7 +123,9 @@ struct SwitcherStateMachine {
             case .scrollMemo(let step):
                 return .scrollMemo(step)
             case .digit(let n) where (1...count).contains(n):
-                return close(.switchTo(n - 1))
+                return close(.switchToDesktop(n))
+            case .cycleCategory:
+                return .cycleCategory(selection)
             case .confirm:
                 return close(.switchTo(selection))
             case .select(let row) where (0..<count).contains(row):
