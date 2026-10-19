@@ -156,3 +156,12 @@ TextEdit에서 Option+E 연타, Option+Shift+E 연타 후 Option 뗌:
 - 실제 오버레이에서 클릭·↑ 이동 9곳: 커서 표시는 매번 존재, hidden 아님, 앱 활성·키 창·first responder 모두 참
 - 재현 못 한 남은 원인: macOS 14+ 협조적 활성화가 `NSApp.activate`를 거절하면 비활성 패널은 키 입력을 받지만 AppKit은 비활성 앱의 커서를 그리지 않음. 테스트 호스트·스크립트 앱은 비활성으로 만들 수 없어 확인 불가
 - 대응: 편집기가 키 창의 first responder면 앱 활성과 무관하게 커서를 그림(`shouldDrawInsertionPoint`), 줄 재배치 후 커서 위치 갱신, 활성화가 거절되면 unified log(category `Focus`)에 기록
+
+## 커서 재발 조사 (2026-10-19, #38)
+
+- `log`는 zsh 내장 명령이라 `log show …`가 "too many arguments"로 실패한다. **`/usr/bin/log show …`** 로 실행할 것 (그동안 셸에서 로그가 안 보이던 이유)
+- #30의 활성화 거절 로그(`Focus`)는 7일간 0건 → 협조적 활성화 거절은 원인이 아니었음
+- 앱이 비활성이 되면 macOS가 `NSTextInsertionIndicator`를 숨기고(`displayMode` hidden) 패널도 키 창에서 빠짐. 이때는 입력도 안 들어오므로 "입력은 되는데 커서 없음"과 다름. `shouldDrawInsertionPoint`는 이 표시에 영향 없음
+- 실제 `LiveMarkdownTextView`로 입력 · Enter · 한글 조합(marked text) · ↑↓ · 표/코드/체크박스 줄 · `setSource` · 크기/투명도 변경 · first responder 재지정을 기록 → 커서 항상 표시
+- **커서 막대는 표시 위치 기준 x −1…+1pt**. `lineFragmentPadding = 0`이면 줄 맨 앞(x=0)에서 왼쪽 절반이 스크롤 영역 경계에 잘려 1pt만 남음 → `textContainerInset.width = 1`로 해결(`LiveMarkdownCaretTests.testLineStartCaretIsNotClipped`)
+- 재현 못 한 나머지는 자가 점검으로 대응: 편집기가 키보드를 가졌는데 커서가 숨겨져 있으면 log(category `Caret`)에 상태를 남기고 다시 표시

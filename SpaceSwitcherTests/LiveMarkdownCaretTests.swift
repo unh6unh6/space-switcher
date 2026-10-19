@@ -53,6 +53,17 @@ final class LiveMarkdownCaretTests: XCTestCase {
         check("본문\n## 제목\n- [ ] 할 일", line: 0, column: 1)
     }
 
+    // #38: the caret bar reaches 1pt left of its spot; at a line start it must not be cut by the clip edge.
+    func testLineStartCaretIsNotClipped() {
+        let (_, view) = editor("첫 줄\n\n셋째")
+        for location in [0, 4, 5] {
+            view.setSelectedRange(NSRange(location: location, length: 0))
+            let rect = view.firstRect(forCharacterRange: NSRange(location: location, length: 0), actualRange: nil)
+            let inView = view.convert(view.window!.convertFromScreen(rect), from: nil)
+            XCTAssertGreaterThanOrEqual(inView.minX - 1, -0.01, "caret at \(location) keeps its left half")
+        }
+    }
+
     // MARK: pure clamp
 
     func testClampKeepsMovesInsideTheLine() {

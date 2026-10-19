@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 /// The memo editor shared by the overlay and the Option+E preview (#27). The text is the Markdown
 /// source; `MarkdownLiveStyle` runs restyle it so it reads like the rendered memo. The caret line(s)
@@ -153,6 +154,7 @@ final class LiveMarkdownTextView: NSTextView {
     private var imageObserver: NSObjectProtocol?
 
     private var revealed: ClosedRange<Int>?
+    static let caretMargin: CGFloat = 1
 
     static func make() -> LiveMarkdownTextView {
         let storage = NSTextStorage()
@@ -173,7 +175,9 @@ final class LiveMarkdownTextView: NSTextView {
         view.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.isHorizontallyResizable = false
         view.autoresizingMask = [.width]
-        view.textContainerInset = CGSize(width: 0, height: 2)
+        // The caret bar spans x −1…+1 around its spot; with no padding a caret at a line start sat on
+        // the clip edge and lost its left half (#38). One point in keeps all of it on screen.
+        view.textContainerInset = CGSize(width: caretMargin, height: 2)
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.isAutomaticTextReplacementEnabled = false
@@ -227,7 +231,62 @@ final class LiveMarkdownTextView: NSTextView {
         needsDisplay = true
         // The caret line was just re-laid out (markers shown or hidden); put the caret where it now is.
         if window?.firstResponder === self { updateInsertionPointStateAndRestartTimer(true) }
+        checkCaret()
     }
+
+    // MARK: caret check (#38)
+
+    private static let caretLog = Logger(subsystem: "io.github.unh6unh6.SpaceSwitcher", category: "Caret")
+    private var lastCaretLog = Date.distantPast
+    private var forcedCaret: NSTextInsertionIndicator?
+
+    private var caretIndicator: NSTextInsertionIndicator? {
+        subviews.lazy.compactMap { $0 as? NSTextInsertionIndicator }.first
+    }
+
+    /// True while this editor really has the keyboard with a plain caret, so a caret must be on screen.
+    private var owesCaret: Bool {
+        isEditable && window?.isKeyWindow == true && window?.firstResponder === self && selectedRange().length == 0
+    }
+
+    /// The caret sometimes went missing while typing still worked (#30, #38), never reproduced. After
+    /// each change, if the editor has the keyboard but macOS hides its caret: note the state in the log
+    /// and show the caret again (forced visible until the editor lets go of the keyboard).
+    private func checkCaret() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, owesCaret else { return }
+            let indicator = caretIndicator
+            guard indicator == nil || indicator!.isHidden || indicator!.displayMode == .hidden else { return }
+            if Date().timeIntervalSince(lastCaretLog) > 10 {
+                lastCaretLog = Date()
+                let state = indicator.map { "hidden=\($0.isHidden) mode=\($0.displayMode.rawValue) frame=\($0.frame)" } ?? "none"
+                Self.caretLog.notice("caret hidden while editing: indicator \(state, privacy: .public) active=\(NSApp.isActive) marked=\(self.hasMarkedText()) sel=\(self.selectedRange().location)")
+            }
+            updateInsertionPointStateAndRestartTimer(true)
+            if let indicator = caretIndicator, indicator.isHidden || indicator.displayMode == .hidden {
+                indicator.displayMode = .visible
+                forcedCaret = indicator
+            }
+        }
+    }
+
+    private func releaseForcedCaret() {
+        forcedCaret?.displayMode = .automatic
+        forcedCaret = nil
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window { NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window) }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLostKey), name: NSWindow.didResignKeyNotification, object: window)
+    }
+
+    @objc private func windowLostKey() { releaseForcedCaret() }
 
     /// Grows (or shrinks) the document to its text so the scroll view knows what there is to scroll
     /// (#28). Typing does this by itself; text and styles set by code do not.
@@ -253,7 +312,7 @@ final class LiveMarkdownTextView: NSTextView {
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
-        if !stillSelecting { restyle() }
+        if !stillSelecting { restyle(); checkCaret() }
     }
 
 
@@ -266,6 +325,7 @@ final class LiveMarkdownTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
         if ok {
+            releaseForcedCaret()
             revealed = nil
             DispatchQueue.main.async { [weak self] in self?.restyle(force: true) }
             onFocusChange(false)
