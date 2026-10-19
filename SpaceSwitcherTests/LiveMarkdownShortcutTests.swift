@@ -49,4 +49,39 @@ final class LiveMarkdownShortcutTests: XCTestCase {
         view.insertNewline(nil)                       // plain newline outside lists
         XCTAssertEqual(view.string, "- 사과\n\n")
     }
+
+    // #37: ⌘S (also on a Korean layout, "ㄴ") saves and ends typing; ⌘Enter no longer does.
+    func testCommandSEndsEditingAndCommandEnterDoesNot() {
+        let (window, view) = editor("메모", caret: 2)
+        var done = 0
+        view.onDone = { done += 1 }
+        XCTAssertTrue(view.performKeyEquivalent(with: key(1, "ㄴ", in: window)))
+        XCTAssertEqual(done, 1)
+        view.keyDown(with: key(1, "s", in: window))
+        XCTAssertEqual(done, 2)
+        view.keyDown(with: key(36, "\r", in: window))
+        XCTAssertEqual(done, 2, "⌘Enter is not a save key any more")
+        XCTAssertEqual(view.string.hasPrefix("메모"), true)
+    }
+
+    // A syllable still being composed is committed before the memo is saved.
+    func testCommandSCommitsTheComposingSyllable() {
+        let (window, view) = editor("메", caret: 1)
+        var savedText: String?
+        view.onDone = { savedText = view.string }
+        view.setMarkedText("모", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.performKeyEquivalent(with: key(1, "ㄴ", in: window)))
+        XCTAssertFalse(view.hasMarkedText())
+        XCTAssertEqual(savedText, "메모")
+    }
+
+    // A locked (read-only) memo ignores ⌘S.
+    func testCommandSDoesNothingWhenReadOnly() {
+        let (window, view) = editor("메모", caret: 2)
+        var done = 0
+        view.onDone = { done += 1 }
+        view.isEditable = false
+        XCTAssertFalse(view.performKeyEquivalent(with: key(1, "s", in: window)))
+        XCTAssertEqual(done, 0)
+    }
 }

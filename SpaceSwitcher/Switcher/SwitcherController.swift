@@ -189,7 +189,7 @@ final class SwitcherController {
         reloadRows()
     }
 
-    // MARK: memo editing (#27): saved as you type, Esc / ⌘Enter / leaving ends it
+    // MARK: memo editing (#27): saved as you type, Esc / ⌘S / leaving ends it
 
     private func memoChanged(_ text: String) {
         model.memoEditText = text

@@ -23,7 +23,7 @@ struct LiveMarkdownEditor: NSViewRepresentable {
     /// Right before a click places the caret: borrow the keyboard (`FocusReturner`).
     var onWantsFocus: () -> Void = {}
     var onFocusChange: (Bool) -> Void = { _ in }
-    /// Esc or ⌘Enter.
+    /// Esc or ⌘S (#37).
     var onDone: () -> Void = {}
     var onScroll: (Int) -> Void = { _ in }
     /// Checkbox clicked while the editor isn't editable: the owner flips that line in the file.
@@ -364,10 +364,6 @@ final class LiveMarkdownTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36, event.modifierFlags.contains(.command) {   // ⌘Enter
-            onDone()
-            return
-        }
         if handleShortcut(event) { return }
         super.keyDown(with: event)
     }
@@ -382,12 +378,17 @@ final class LiveMarkdownTextView: NSTextView {
 
     /// Physical keys, so they work with any input source (a Korean layout reports jamo for ⌘B).
     private enum ShortcutKey {
-        static let b: UInt16 = 11, i: UInt16 = 34, e: UInt16 = 14, k: UInt16 = 40, l: UInt16 = 37
+        static let b: UInt16 = 11, i: UInt16 = 34, e: UInt16 = 14, k: UInt16 = 40, l: UInt16 = 37, s: UInt16 = 1
     }
 
     private func handleShortcut(_ event: NSEvent) -> Bool {
-        guard isEditable, !hasMarkedText(),
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return false }
+        guard isEditable, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return false }
+        if event.keyCode == ShortcutKey.s {   // ⌘S: save and end typing (#37); keep a syllable being composed
+            if hasMarkedText() { unmarkText() }
+            onDone()
+            return true
+        }
+        guard !hasMarkedText() else { return false }
         let text = string, selection = selectedRange()
         switch event.keyCode {
         case ShortcutKey.b: apply(MarkdownEditing.toggleWrap("**", text: text, selection: selection))
