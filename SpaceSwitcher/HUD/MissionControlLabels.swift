@@ -2,15 +2,14 @@ import AppKit
 
 /// Lays desktop names over the thumbnails of Mission Control's expanded Spaces bar (#40), so it is
 /// clear which desktop a window is dropped on or which one is dragged. Mission Control posts nothing,
-/// so this polls the window list: slowly while it is closed, at animation pace while it is open so the
-/// labels follow thumbnails sliding in and being dragged.
-final class MissionControlLabelsController {
+/// so this polls the window list every 0.25 s while it is closed, and once per screen refresh (a
+/// display link) while it is open so the labels keep up with thumbnails sliding in and being dragged.
+final class MissionControlLabelsController: NSObject {
     private static let idleInterval: TimeInterval = 0.25
-    private static let openInterval: TimeInterval = 1.0 / 30
 
     private let names: NameStore
     private var timer: Timer?
-    private var interval: TimeInterval = 0
+    private var displayLink: CADisplayLink?
     private var spaces = SpaceProvider.Snapshot(spaces: [], activePosition: nil, count: 0)
     private var thumbnailCount = 0
     /// Thumbnail window → Space position, then → label (none for fullscreen app Spaces).
@@ -20,6 +19,7 @@ final class MissionControlLabelsController {
 
     init(names: NameStore) {
         self.names = names
+        super.init()
         NotificationCenter.default.addObserver(forName: MissionControlLayout.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applySetting()
         }
@@ -28,35 +28,47 @@ final class MissionControlLabelsController {
 
     private func applySetting() {
         if MissionControlLayout.isEnabled() {
-            if timer == nil { schedule(Self.idleInterval) }
+            if timer == nil, displayLink == nil { startIdle() }
         } else {
-            timer?.invalidate()
-            timer = nil
-            interval = 0
+            stopPolling()
             reset()
         }
     }
 
-    private func schedule(_ interval: TimeInterval) {
-        guard interval != self.interval else { return }
-        self.interval = interval
-        timer?.invalidate()
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+    private func startIdle() {
+        stopPolling()
+        let timer = Timer(timeInterval: Self.idleInterval, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
 
+    private func startFollowing() {
+        stopPolling()
+        guard let link = (NSScreen.screens.first ?? NSScreen.main)?.displayLink(target: self, selector: #selector(frame)) else { return }
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopPolling() {
+        timer?.invalidate()
+        timer = nil
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func frame() { tick() }
+
     private func tick() {
         guard case .open(let thumbnails) = MissionControlLayout.state(Self.windows(), display: CGDisplayBounds(CGMainDisplayID())) else {
-            if interval == Self.openInterval {
+            if displayLink != nil {
                 reset()
-                schedule(Self.idleInterval)
+                startIdle()
             }
             return
         }
-        if interval != Self.openInterval {
+        if displayLink == nil {
             spaces = SpaceProvider.snapshot()
-            schedule(Self.openInterval)
+            startFollowing()
         }
         // A desktop added or removed with Mission Control's own + / ×.
         if thumbnails.count != thumbnailCount {
@@ -104,8 +116,11 @@ final class MissionControlLabelsController {
 }
 
 /// One click-through name tag. `.stationary` keeps it on screen while Mission Control is open.
+/// A dark behind-window blur capsule with bold white text (picked from `spike/mclabelstyles.swift`).
+/// Liquid Glass made the tags stutter while following thumbnails, so it is not used.
 final class MissionControlLabelPanel: NSPanel {
     private let label = NSTextField(labelWithString: "")
+    private let blur = NSVisualEffectView()
 
     init() {
         super.init(contentRect: .zero, styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
@@ -117,32 +132,44 @@ final class MissionControlLabelPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
 
-        let background = NSView()
-        background.wantsLayer = true
-        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
-        background.layer?.cornerRadius = 6
+        blur.material = .hudWindow
+        blur.appearance = NSAppearance(named: .vibrantDark)
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.masksToBounds = true
+        blur.alphaValue = 0.9
 
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .white
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 2
+        label.shadow = shadow
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        background.addSubview(label)
+        blur.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -8),
-            label.topAnchor.constraint(equalTo: background.topAnchor, constant: 3),
-            label.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -3),
+            label.leadingAnchor.constraint(equalTo: blur.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: blur.trailingAnchor, constant: -10),
+            label.topAnchor.constraint(equalTo: blur.topAnchor, constant: 3),
+            label.bottomAnchor.constraint(equalTo: blur.bottomAnchor, constant: -3),
         ])
-        contentView = background
+        contentView = blur
     }
 
     func show(_ text: String, over thumbnail: CGRect, primaryHeight: CGFloat) {
         if label.stringValue != text { label.stringValue = text }
-        let size = contentView!.fittingSize
+        let size = blur.fittingSize
         let frame = MissionControlLayout.labelFrame(size: size, thumbnail: thumbnail, primaryHeight: primaryHeight)
-        if self.frame != frame { setFrame(frame, display: true) }
+        if self.frame != frame {
+            let resized = self.frame.size != frame.size
+            setFrame(frame, display: false)
+            if resized { blur.layer?.cornerRadius = frame.height / 2 }  // a capsule, like macOS's caption pill
+        }
         if !isVisible { orderFrontRegardless() }
     }
 }

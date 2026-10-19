@@ -77,17 +77,21 @@ final class MissionControlLayoutTests: XCTestCase {
 
     // MARK: label placement
 
-    // Bottom centre of the thumbnail, inside it, in AppKit coordinates (y grows upward from the primary screen's bottom).
-    func testLabelSitsAtTheBottomCentreOfTheThumbnail() {
+    // On the thumbnail window's bottom edge, where macOS draws its "데스크탑 N" caption, in AppKit
+    // coordinates (y grows upward from the primary screen's bottom).
+    func testLabelCoversTheCaptionStrip() {
         let thumbnail = CGRect(x: 673, y: 37, width: 190, height: 129)
-        let frame = MissionControlLayout.labelFrame(size: CGSize(width: 80, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
-        XCTAssertEqual(frame, CGRect(x: 673 + 55, y: 1080 - 166 + MissionControlLayout.labelInset, width: 80, height: 22))
+        let frame = MissionControlLayout.labelFrame(size: CGSize(width: 120, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
+        XCTAssertEqual(frame, CGRect(x: 673 + 35, y: 1080 - 166, width: 120, height: 22))
     }
 
-    func testLongLabelIsNarrowedToTheThumbnail() {
+    // A short name is still wide enough to hide the caption; a long one stops at the thumbnail's width.
+    func testLabelWidthIsBetweenTheCaptionAndTheThumbnail() {
         let thumbnail = CGRect(x: 0, y: 37, width: 190, height: 129)
-        let frame = MissionControlLayout.labelFrame(size: CGSize(width: 400, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
-        XCTAssertEqual(frame.width, 190 - 2 * MissionControlLayout.labelInset)
-        XCTAssertEqual(frame.minX, MissionControlLayout.labelInset)
+        let short = MissionControlLayout.labelFrame(size: CGSize(width: 30, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
+        XCTAssertEqual(short.width, MissionControlLayout.labelMinWidth)
+        XCTAssertEqual(short.midX, thumbnail.midX)
+        let long = MissionControlLayout.labelFrame(size: CGSize(width: 400, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
+        XCTAssertEqual(long.width, 190)
     }
 }

@@ -29,7 +29,8 @@ enum MissionControlLayout {
 
     static let owner = "WindowManager"
     static let backdropLayer = 19, barLayer = 14, thumbnailLayer = 15
-    static let labelInset: CGFloat = 6
+    /// Wide enough to cover macOS's own "데스크탑 N" caption under the thumbnail.
+    static let labelMinWidth: CGFloat = 110
 
     /// `display` is the main display in CG coordinates.
     static func state(_ windows: [Window], display: CGRect) -> State {
@@ -51,11 +52,13 @@ enum MissionControlLayout {
         return Dictionary(uniqueKeysWithValues: thumbnails.enumerated().map { ($1.id, $0) })
     }
 
-    /// A label of `size` at the bottom centre inside `thumbnail`, in AppKit coordinates.
+    /// A label of `size` on the bottom edge of `thumbnail`, in AppKit coordinates (y grows upward from the
+    /// primary screen's bottom; `thumbnail` is top-left based). The thumbnail window's bottom strip is
+    /// macOS's own "데스크탑 N" caption, so the label covers just that.
     static func labelFrame(size: CGSize, thumbnail: CGRect, primaryHeight: CGFloat) -> CGRect {
-        let width = min(size.width, thumbnail.width - 2 * labelInset)
+        let width = min(max(size.width, labelMinWidth), thumbnail.width)
         return CGRect(x: thumbnail.midX - width / 2,
-                      y: primaryHeight - thumbnail.maxY + labelInset,
+                      y: primaryHeight - thumbnail.maxY,
                       width: width, height: size.height)
     }
 
