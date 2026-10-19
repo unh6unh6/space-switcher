@@ -152,11 +152,29 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
     private func takeFocus() {
         guard model.canEdit, !model.isLocked else { return }
         focus.take(for: panel)
+        startFromTemplate()
+    }
+
+    /// A desktop without a memo starts from the template (#36), caret at its end. Not saved until changed.
+    private func startFromTemplate() {
+        guard let space = shownSpace, !model.isFocused,
+              let text = MemoTemplate.start(memo: model.text, template: settings.template, name: names.displayName(for: space))
+        else { return }
+        sync.startFromTemplate(text)
+        show(text, scrollLine: 0)
+        model.focusRequest += 1
+    }
+
+    /// Leaving a template untouched leaves no memo: back to the empty memo.
+    private func dropUntouchedTemplate() {
+        guard sync.isUntouchedTemplate(model.text) else { return }
+        sync = MemoSync(loaded: nil)
+        show("", scrollLine: 0)
     }
 
     private func focusChanged(_ focused: Bool) {
         model.isFocused = focused
-        if !focused { flushSave() }
+        if !focused { flushSave(); dropUntouchedTemplate() }
         applyOpacity(hovering: false)
         updateVisibility()
     }
@@ -166,6 +184,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
         flushSave()
         panel.makeFirstResponder(nil)
         model.isFocused = false
+        dropUntouchedTemplate()
         if returnToPreviousApp { focus.giveBack() } else { focus.release() }
         applyOpacity(hovering: false)
         updateVisibility()
@@ -252,6 +271,8 @@ final class MemoOverlayModel: ObservableObject {
     @Published var isLocked = false
     @Published var isFocused = false
     @Published var isCollapsed = false
+    /// Bump to put the caret at the end of the text (a template was just filled in, #36).
+    @Published var focusRequest = 0
     /// First visible source line (#25).
     @Published var scrollLine = 0
     /// The memo folder, for images (#21).
@@ -366,6 +387,7 @@ struct MemoOverlayView: View {
                                editable: model.canEdit && !model.isLocked,
                                canToggleTasks: model.canEdit && !model.isLocked,
                                scrollLine: model.scrollLine,
+                               focusRequest: model.focusRequest,
                                baseDirectory: model.baseDirectory,
                                onTextChange: model.onTextChange,
                                onWantsFocus: model.onWantsFocus,

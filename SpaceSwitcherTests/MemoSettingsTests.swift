@@ -20,6 +20,14 @@ final class MemoSettingsTests: XCTestCase {
         XCTAssertFalse(s.collapsed)
         XCTAssertFalse(s.hideWhenEmpty)
         XCTAssertNil(s.directoryPath)
+        XCTAssertEqual(s.template, "")            // #36: no template = memos start blank
+    }
+
+    func testTemplateRoundTrip() {
+        var s = MemoSettings()
+        s.template = "# {{name}}\n- [ ] "
+        s.save(to: defaults)
+        XCTAssertEqual(MemoSettings.load(from: defaults).template, "# {{name}}\n- [ ] ")
     }
 
     func testRoundTrip() {

@@ -87,6 +87,8 @@ struct MemoSettings: Equatable {
     var layouts: [String: Layout] = [:]
     /// Desktops whose memo is read-only (#27).
     var locked: Set<String> = []
+    /// What a desktop's first memo starts from (#36); empty = blank. See `MemoTemplate`.
+    var template = ""
 
     func isLocked(_ spaceID: String?) -> Bool {
         spaceID.map(locked.contains) ?? false
@@ -127,7 +129,7 @@ struct MemoSettings: Equatable {
         static let corner = "memoCorner", frame = "memoFrame", collapsed = "memoCollapsed"
         static let hideWhenEmpty = "memoHideWhenEmpty", directory = "memoDirectory", layouts = "memoLayouts",
                          locked = "memoLocked"
-        static let overlayBackground = "memoOverlayBackground"
+        static let overlayBackground = "memoOverlayBackground", template = "memoTemplate"
     }
 
     static func load(from defaults: UserDefaults = .standard) -> MemoSettings {
@@ -146,6 +148,7 @@ struct MemoSettings: Equatable {
         }
         s.locked = Set(defaults.stringArray(forKey: Key.locked) ?? [])
         s.overlayBackground = defaults.string(forKey: Key.overlayBackground).flatMap(Background.init) ?? .standard
+        s.template = defaults.string(forKey: Key.template) ?? ""
         return s
     }
 
@@ -165,6 +168,7 @@ struct MemoSettings: Equatable {
         defaults.set(try? JSONEncoder().encode(layouts), forKey: Key.layouts)
         defaults.set(locked.sorted(), forKey: Key.locked)
         defaults.set(overlayBackground.rawValue, forKey: Key.overlayBackground)
+        defaults.set(template, forKey: Key.template)
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 

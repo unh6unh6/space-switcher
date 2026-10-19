@@ -15,17 +15,31 @@ struct MemoSync {
 
     /// What the file holds as far as we know (last loaded or saved).
     private var saved: String
+    /// A template the editor started from (#36): unchanged, it is not worth a file. Cleared on save.
+    private var template: String?
 
     init(loaded: String?) {
         saved = Self.normalized(loaded)
     }
 
     func needsSave(_ editorText: String) -> Bool {
-        Self.normalized(editorText) != saved
+        let text = Self.normalized(editorText)
+        return text != saved && text != template
     }
 
     mutating func didSave(_ text: String) {
         saved = Self.normalized(text)
+        template = nil
+    }
+
+    /// The editor was filled with a template for a desktop without a memo (#36).
+    mutating func startFromTemplate(_ text: String) {
+        template = Self.normalized(text)
+    }
+
+    /// Still exactly the template: leaving now should leave no memo behind.
+    func isUntouchedTemplate(_ editorText: String) -> Bool {
+        template != nil && Self.normalized(editorText) == template
     }
 
     func incoming(_ fileText: String?, editorText: String) -> Decision {

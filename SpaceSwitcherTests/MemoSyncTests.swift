@@ -34,4 +34,30 @@ final class MemoSyncTests: XCTestCase {
         sync.didSave("ab")
         XCTAssertFalse(sync.needsSave("ab"))
     }
+
+    // #36: an untouched template is not a memo — nothing to save until the user changes it.
+    func testUntouchedTemplateIsNotSaved() {
+        var sync = MemoSync(loaded: nil)
+        sync.startFromTemplate("## 할 일\n- [ ] ")
+        XCTAssertFalse(sync.needsSave("## 할 일\n- [ ] "))
+        XCTAssertTrue(sync.isUntouchedTemplate("## 할 일\n- [ ] "))
+        XCTAssertTrue(sync.needsSave("## 할 일\n- [ ] 배포"))
+        XCTAssertFalse(sync.isUntouchedTemplate("## 할 일\n- [ ] 배포"))
+    }
+
+    // Once something was saved, going back to the template text is a real edit again.
+    func testTemplateCountsOnlyUntilTheFirstSave() {
+        var sync = MemoSync(loaded: nil)
+        sync.startFromTemplate("T")
+        sync.didSave("T plus")
+        XCTAssertTrue(sync.needsSave("T"))
+        XCTAssertFalse(sync.isUntouchedTemplate("T"))
+    }
+
+    // A memo written elsewhere meanwhile replaces an untouched template.
+    func testOutsideMemoReplacesUntouchedTemplate() {
+        var sync = MemoSync(loaded: nil)
+        sync.startFromTemplate("T")
+        XCTAssertEqual(sync.incoming("from Obsidian", editorText: "T"), .replace)
+    }
 }

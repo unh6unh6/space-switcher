@@ -29,6 +29,7 @@ final class SettingsModel: ObservableObject {
             current.hideWhenEmpty = memo.hideWhenEmpty
             current.overlayBackground = memo.overlayBackground
             current.directoryPath = memo.directoryPath
+            current.template = memo.template
             if current.corner != memo.corner {
                 current.corner = memo.corner
                 current.resetPositions()  // every desktop's memo moves to the picked corner (#24)
@@ -248,6 +249,14 @@ private struct MemoTab: View {
             }
             Section("Option+E") {
                 Toggle("목록 옆에 선택한 데스크탑의 메모 미리보기", isOn: $model.memo.previewEnabled)
+            }
+            Section("새 메모 템플릿") {
+                TextEditor(text: $model.memo.template)
+                    .font(.system(.callout, design: .monospaced))
+                    .frame(height: 110)
+                    .scrollContentBackground(.hidden)
+                Text("메모가 없는 데스크탑에서 처음 입력할 때 이 내용으로 시작해요. 고치지 않고 나가면 저장되지 않아요.\n`{{name}}` 데스크탑 이름 · `{{date}}` 오늘 날짜 · 비우면 빈 메모로 시작")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

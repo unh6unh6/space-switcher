@@ -165,8 +165,11 @@ final class SwitcherController {
             let memo = memos.memo(for: space.id)
             memoSpace = space
             memoSync = MemoSync(loaded: memo)
-            model.memoEditText = memo ?? ""
-            model.memoEditVersion = (memo ?? "").hashValue
+            // No memo yet: start from the template (#36), saved only once it is changed.
+            let template = MemoTemplate.start(memo: memo, template: MemoSettings.load().template, name: names.displayName(for: space))
+            if let template { memoSync.startFromTemplate(template) }
+            model.memoEditText = template ?? memo ?? ""
+            model.memoEditVersion = model.memoEditText.hashValue
             model.editingMemoRow = row
             model.memoFocusRequest += 1
             takeKeyboard()
