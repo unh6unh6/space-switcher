@@ -9,6 +9,8 @@ enum SpaceProvider {
         let spaces: [Space]
         /// Active Space among all Spaces (fullscreen included); nil if not on the main display.
         let activePosition: Int?
+        /// All Spaces of the main display, fullscreen included.
+        let count: Int
     }
 
     static func spaces() -> [Space] {
@@ -21,7 +23,8 @@ enum SpaceProvider {
         let active = CGSGetActiveSpace(cid)
         let main = mainDisplayUUID()
         return Snapshot(spaces: SpaceParser.parse(displays, activeSpaceID: active, mainDisplayID: main),
-                        activePosition: SpaceParser.activePosition(displays, activeSpaceID: active, mainDisplayID: main))
+                        activePosition: SpaceParser.activePosition(displays, activeSpaceID: active, mainDisplayID: main),
+                        count: SpaceParser.count(displays, mainDisplayID: main))
     }
 
     private static func mainDisplayUUID() -> String? {

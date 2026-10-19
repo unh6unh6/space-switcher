@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var permissionsWindow = PermissionsWindowController(monitor: permissions)
     private lazy var switcher = SwitcherController(names: names, memos: memos)
     private var hud: SpaceHUDController?
+    private var missionControlLabels: MissionControlLabelsController?
     private var memoOverlay: MemoOverlayController?
     private lazy var settingsWindow = SettingsWindowController(model: SettingsModel(
         names: names, memos: memos, permissions: permissions,
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isRunningTests else { return }
         migrateLegacyDescriptions()
         hud = SpaceHUDController(names: names)
+        missionControlLabels = MissionControlLabelsController(names: names)
         memoOverlay = MemoOverlayController(names: names, memos: memos)
         // Memo files are named after their desktop; follow renames (#18).
         NotificationCenter.default.addObserver(forName: NameStore.didChange, object: names, queue: .main) { [weak self] _ in

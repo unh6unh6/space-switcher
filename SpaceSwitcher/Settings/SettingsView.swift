@@ -51,6 +51,9 @@ final class SettingsModel: ObservableObject {
     @Published var hud = SpaceHUDSettings.load() {
         didSet { hud.save() }
     }
+    @Published var missionControlLabels = MissionControlLayout.isEnabled() {
+        didSet { MissionControlLayout.setEnabled(missionControlLabels) }
+    }
 
     let names: NameStore
     let memos: MemoStore
@@ -204,6 +207,11 @@ private struct GeneralTab: View {
                 }
                 .pickerStyle(.segmented)
                 .disabled(!model.hud.isEnabled)
+            }
+            Section("Mission Control") {
+                Toggle("데스크탑 줄 썸네일에 데스크탑 이름 표시", isOn: $model.missionControlLabels)
+                Text("화면 위쪽 데스크탑 줄을 펼치면 각 썸네일 아래쪽에 이름이 붙습니다.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle("스위처 목록에 데스크탑별 앱 아이콘 표시", isOn: $model.showAppIcons)

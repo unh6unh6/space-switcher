@@ -42,6 +42,11 @@ enum SpaceParser {
             .firstIndex { ($0["ManagedSpaceID"] as? Int) == activeSpaceID }
     }
 
+    /// How many Spaces the main display has, fullscreen ones included (#40: one Mission Control thumbnail each).
+    static func count(_ displays: [[String: Any]], mainDisplayID: String?) -> Int {
+        spaces(of: displays, mainDisplayID: mainDisplayID).count
+    }
+
     private static func spaces(of displays: [[String: Any]], mainDisplayID: String?) -> [[String: Any]] {
         let display = displays.first { ($0["Display Identifier"] as? String) == mainDisplayID } ?? displays.first
         return display?["Spaces"] as? [[String: Any]] ?? []

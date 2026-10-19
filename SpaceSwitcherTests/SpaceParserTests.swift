@@ -34,6 +34,13 @@ final class SpaceParserTests: XCTestCase {
         XCTAssertNil(SpaceParser.activePosition(raw, activeSpaceID: 42, mainDisplayID: "MAIN"))
     }
 
+    // #40: Mission Control shows a thumbnail per Space, fullscreen ones included.
+    func testCountIncludesFullscreenSpacesOfTheMainDisplay() {
+        let raw = [display("OTHER", current: 7, [space(7, "X")]),
+                   display("MAIN", current: 3, [space(3, "A"), space(9, "FS", type: 4), space(4, "B")])]
+        XCTAssertEqual(SpaceParser.count(raw, mainDisplayID: "MAIN"), 3)
+    }
+
     func testEmptyUUIDMapsToMainKey() {
         let raw = [display("MAIN", current: 1, [space(1, ""), space(2, "B")])]
         let spaces = SpaceParser.parse(raw, activeSpaceID: 1, mainDisplayID: "MAIN")
