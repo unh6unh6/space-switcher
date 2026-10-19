@@ -165,3 +165,12 @@ TextEdit에서 Option+E 연타, Option+Shift+E 연타 후 Option 뗌:
 - 실제 `LiveMarkdownTextView`로 입력 · Enter · 한글 조합(marked text) · ↑↓ · 표/코드/체크박스 줄 · `setSource` · 크기/투명도 변경 · first responder 재지정을 기록 → 커서 항상 표시
 - **커서 막대는 표시 위치 기준 x −1…+1pt**. `lineFragmentPadding = 0`이면 줄 맨 앞(x=0)에서 왼쪽 절반이 스크롤 영역 경계에 잘려 1pt만 남음 → `textContainerInset.width = 1`로 해결(`LiveMarkdownCaretTests.testLineStartCaretIsNotClipped`)
 - 재현 못 한 나머지는 자가 점검으로 대응: 편집기가 키보드를 가졌는데 커서가 숨겨져 있으면 log(category `Caret`)에 상태를 남기고 다시 표시
+
+## 후속 발견 (2026-10-20): Mission Control 위에 데스크탑 이름 띄우기 스파이크
+- 목적: Mission Control에서 어느 썸네일이 어느 데스크탑인지 보이게 우리 이름을 겹쳐 그리기 (`spike/mcoverlay.swift`)
+- macOS 27에서 Mission Control은 Dock이 아니라 **WindowManager** 프로세스가 그림. `CGWindowListCopyWindowInfo`로 보임 (화면 기록 권한 없이 bounds · layer · owner 읽힘)
+  - 열림: layer 19 전체 화면 + layer 14 `0,0 1920x96`(접힌 데스크탑 줄). 닫힘: 둘 다 사라짐 → 0.1 s 폴링으로 열림/닫힘 감지 가능
+  - 데스크탑 줄 펼침(위쪽 호버): layer 14가 `1920x226`으로 커지고, 썸네일마다 layer 15 `190x129` 창이 y=37에 나타남(위에서 미끄러져 들어옴). 두 썸네일 간격 192, 묶음 가운데 = 화면 가운데
+  - 창 썸네일은 layer 0(앱 이름표 layer 2)으로 따로 나타남
+- 우리 패널: `.canJoinAllSpaces`만으로는 Mission Control 중 화면 목록에서 빠짐(메모 오버레이 포함). **`.stationary`를 더하면 남고, level 101에서 Mission Control 위 · 썸네일 위에 그려짐** (사용자 눈으로 확인)
+- 미확인: 펼친 줄에 데스크탑 수만큼 layer 15 창이 생기는지(측정 때 2개만 보임), 접힌 줄의 이름 위치 계산, 여러 모니터
