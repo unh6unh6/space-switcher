@@ -21,6 +21,24 @@ final class MemoSettingsTests: XCTestCase {
         XCTAssertFalse(s.hideWhenEmpty)
         XCTAssertNil(s.directoryPath)
         XCTAssertEqual(s.template, "")            // #36: no template = memos start blank
+        XCTAssertTrue(s.enabled)                  // #42: the memo feature is on by default
+    }
+
+    // #42: turning the feature off hides the overlay and the preview but keeps their own toggles.
+    func testFeatureSwitchGatesOverlayAndPreview() {
+        var s = MemoSettings()
+        s.overlayEnabled = true
+        s.previewEnabled = true
+        XCTAssertTrue(s.showsOverlay)
+        XCTAssertTrue(s.showsPreview)
+        s.enabled = false
+        XCTAssertFalse(s.showsOverlay)
+        XCTAssertFalse(s.showsPreview)
+        s.save(to: defaults)
+        let loaded = MemoSettings.load(from: defaults)
+        XCTAssertFalse(loaded.enabled)
+        XCTAssertTrue(loaded.overlayEnabled)
+        XCTAssertTrue(loaded.previewEnabled)
     }
 
     func testTemplateRoundTrip() {

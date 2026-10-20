@@ -39,7 +39,7 @@ final class SwitcherController {
         self.names = names
         self.memos = memos
         machine = SwitcherStateMachine { [unowned self] in
-            tapSpaces = DesktopCategories.load().ordered(SpaceProvider.spaces())   // grouped rows (#35)
+            tapSpaces = DesktopCategories.active().ordered(SpaceProvider.spaces())   // grouped rows (#35)
             return (count: tapSpaces.count, initial: mru.initialSelection(InitialSelection.stored, in: tapSpaces))
         }
 
@@ -92,7 +92,7 @@ final class SwitcherController {
         // (first open measured 106 ms cold vs ~30 ms warm with app icons on).
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            spaces = DesktopCategories.load().ordered(SpaceProvider.spaces())
+            spaces = DesktopCategories.active().ordered(SpaceProvider.spaces())
             reloadRows()
             panel.layoutIfNeeded()
         }
@@ -162,7 +162,9 @@ final class SwitcherController {
             guard spaces.indices.contains(row) else { return }
             model.selection = row
             let space = spaces[row]
-            if MemoSettings.load().isLocked(space.id) {   // read-only memo (#27)
+            let memoSettings = MemoSettings.load()
+            // Memos turned off (#42), or a read-only memo (#27).
+            if !memoSettings.enabled || memoSettings.isLocked(space.id) {
                 NSSound.beep()
                 sendFromMain(.endDescribe)
                 return
@@ -188,8 +190,8 @@ final class SwitcherController {
     /// follows the desktop to its new row.
     private func cycleCategory(_ row: Int) {
         guard spaces.indices.contains(row) else { return }
-        var categories = DesktopCategories.load()
-        guard !categories.categories.isEmpty else { NSSound.beep(); return }
+        var categories = DesktopCategories.active()
+        guard !categories.categories.isEmpty else { NSSound.beep(); return }   // none made, or the feature is off (#42)
         let id = spaces[row].id
         categories.cycle(id)
         categories.save()
@@ -281,7 +283,7 @@ final class SwitcherController {
         let lockedMemos = MemoSettings.load().locked
         model.memoDirectory = memos.directory
         let appsBySpace = SpaceApps.showIcons() ? SpaceAppsProvider.current() : nil
-        let categories = DesktopCategories.load()
+        let categories = DesktopCategories.active()
         var headers: [String: String] = [:]   // first desktop of each group → its header (#35)
         for group in categories.groups(spaces) {
             if let title = group.title, let first = group.spaces.first { headers[first.id] = title }
@@ -300,7 +302,9 @@ final class SwitcherController {
             }
             return row
         }
-        model.showsMemoPreview = MemoSettings.load().previewEnabled && memos.hasAnyMemo(among: Set(spaces.map(\.id)))
+        let memoSettings = MemoSettings.load()
+        model.memoEnabled = memoSettings.enabled
+        model.showsMemoPreview = memoSettings.showsPreview && memos.hasAnyMemo(among: Set(spaces.map(\.id)))
     }
 
     private func recordCurrentSpace() {

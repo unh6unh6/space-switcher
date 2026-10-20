@@ -108,4 +108,25 @@ final class DesktopCategoriesTests: XCTestCase {
         XCTAssertEqual(DesktopCategories.load(from: defaults), c)
         XCTAssertEqual(DesktopCategories.load(from: UserDefaults(suiteName: suite + ".empty")!), DesktopCategories())
     }
+
+    // MARK: feature switch (#42)
+
+    func testFeatureIsOnByDefaultAndOffIgnoresCategoriesButKeepsThem() {
+        let suite = "SpaceSwitcherTests.DesktopCategories.enabled"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        var c = made(["todo"])
+        c.assign("todo", to: "s2")
+        c.save(to: defaults)
+        XCTAssertTrue(DesktopCategories.isEnabled(in: defaults))
+        XCTAssertEqual(DesktopCategories.active(from: defaults), c)
+
+        DesktopCategories.setEnabled(false, in: defaults)
+        XCTAssertFalse(DesktopCategories.isEnabled(in: defaults))
+        XCTAssertEqual(DesktopCategories.active(from: defaults), DesktopCategories())   // plain list
+        XCTAssertEqual(DesktopCategories.load(from: defaults), c)                       // data kept
+
+        DesktopCategories.setEnabled(true, in: defaults)
+        XCTAssertEqual(DesktopCategories.active(from: defaults), c)
+    }
 }

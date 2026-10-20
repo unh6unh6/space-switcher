@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum SettingsTab: Hashable {
-    case general, shortcut, desktops, memo, permissions
+    case general, shortcut, desktops, memo, categories, permissions
 }
 
 final class SettingsModel: ObservableObject {
@@ -22,6 +22,10 @@ final class SettingsModel: ObservableObject {
         didSet { if !syncingCategories { categories.save() } }
     }
     private var syncingCategories = false
+    /// The category feature (#42); off = the switcher list isn't grouped and C does nothing.
+    @Published var categoriesEnabled = DesktopCategories.isEnabled() {
+        didSet { if !syncingCategories { DesktopCategories.setEnabled(categoriesEnabled) } }
+    }
     @Published var newCategory = ""
     /// Merges only the fields this tab edits into the latest stored settings, because the overlay
     /// saves its own frame/collapsed state meanwhile; saving a stale copy would undo a drag.
@@ -29,6 +33,7 @@ final class SettingsModel: ObservableObject {
         didSet {
             guard !syncingMemo else { return }
             var current = MemoSettings.load()
+            current.enabled = memo.enabled
             current.overlayEnabled = memo.overlayEnabled
             current.previewEnabled = memo.previewEnabled
             current.opacity = memo.opacity
@@ -72,6 +77,7 @@ final class SettingsModel: ObservableObject {
             guard let self, !syncingCategories else { return }
             syncingCategories = true
             categories = DesktopCategories.load()
+            categoriesEnabled = DesktopCategories.isEnabled()
             syncingCategories = false
         }
         // Menu bar toggle and the overlay itself also change memo settings; mirror them here.
@@ -149,6 +155,8 @@ struct SettingsView: View {
                 .tabItem { Label("데스크탑", systemImage: "rectangle.3.group") }.tag(SettingsTab.desktops)
             MemoTab(model: model)
                 .tabItem { Label("메모", systemImage: "note.text") }.tag(SettingsTab.memo)
+            CategoriesTab(model: model)
+                .tabItem { Label("카테고리", systemImage: "tag") }.tag(SettingsTab.categories)
             PermissionsView(monitor: model.permissions, onClose: nil)
                 .tabItem { Label("권한", systemImage: "lock.shield") }.tag(SettingsTab.permissions)
         }
@@ -231,56 +239,63 @@ private struct MemoTab: View {
 
     var body: some View {
         Form {
-            Section("저장 폴더") {
-                Text(model.memoFolder)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                HStack {
-                    Button("폴더 변경…", action: model.chooseMemoFolder)
-                    Button("Finder에서 열기", action: model.openMemoFolder)
-                }
-                Text("데스크탑마다 `이름.md` 파일 하나. 다른 편집기에서 고쳐도 바로 반영됩니다.")
+            Section {
+                Toggle("메모 기능 사용", isOn: $model.memo.enabled)
+                Text("데스크탑마다 마크다운 메모를 띄우고 Option+E 목록에서 미리 보고 고칩니다. 꺼도 메모 파일은 그대로 남아요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("메모 띄우기") {
-                Toggle("현재 데스크탑 메모를 항상 위에 띄우기", isOn: $model.memo.overlayEnabled)
-                LabeledContent("투명도") {
-                    Slider(value: $model.memo.opacity, in: MemoSettings.minOpacity...1)
-                        .frame(maxWidth: 220)
-                    Text("\(Int(model.memo.opacity * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+            if model.memo.enabled {
+                Section("저장 폴더") {
+                    Text(model.memoFolder)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                    HStack {
+                        Button("폴더 변경…", action: model.chooseMemoFolder)
+                        Button("Finder에서 열기", action: model.openMemoFolder)
+                    }
+                    Text("데스크탑마다 `이름.md` 파일 하나. 다른 편집기에서 고쳐도 바로 반영됩니다.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .disabled(!model.memo.overlayEnabled)
-                Picker("위치", selection: Binding(
-                    get: { model.memo.corner },
-                    set: { model.memo.corner = $0 })) {
-                    Text("왼쪽 위").tag(MemoSettings.Corner.topLeft)
-                    Text("오른쪽 위").tag(MemoSettings.Corner.topRight)
-                    Text("왼쪽 아래").tag(MemoSettings.Corner.bottomLeft)
-                    Text("오른쪽 아래").tag(MemoSettings.Corner.bottomRight)
-                }
-                .disabled(!model.memo.overlayEnabled)
-                Toggle("메모가 없는 데스크탑에서는 숨기기", isOn: $model.memo.hideWhenEmpty)
+                Section("메모 띄우기") {
+                    Toggle("현재 데스크탑 메모를 항상 위에 띄우기", isOn: $model.memo.overlayEnabled)
+                    LabeledContent("투명도") {
+                        Slider(value: $model.memo.opacity, in: MemoSettings.minOpacity...1)
+                            .frame(maxWidth: 220)
+                        Text("\(Int(model.memo.opacity * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
                     .disabled(!model.memo.overlayEnabled)
-                Picker("메모 창 배경색", selection: $model.memo.overlayBackground) {
-                    ForEach(MemoSettings.Background.allCases, id: \.self) { Text($0.title).tag($0) }
+                    Picker("위치", selection: Binding(
+                        get: { model.memo.corner },
+                        set: { model.memo.corner = $0 })) {
+                        Text("왼쪽 위").tag(MemoSettings.Corner.topLeft)
+                        Text("오른쪽 위").tag(MemoSettings.Corner.topRight)
+                        Text("왼쪽 아래").tag(MemoSettings.Corner.bottomLeft)
+                        Text("오른쪽 아래").tag(MemoSettings.Corner.bottomRight)
+                    }
+                    .disabled(!model.memo.overlayEnabled)
+                    Toggle("메모가 없는 데스크탑에서는 숨기기", isOn: $model.memo.hideWhenEmpty)
+                        .disabled(!model.memo.overlayEnabled)
+                    Picker("메모 창 배경색", selection: $model.memo.overlayBackground) {
+                        ForEach(MemoSettings.Background.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .disabled(!model.memo.overlayEnabled)
+                    Text("드래그로 옮기고 가장자리를 끌어 크기를 바꿀 수 있어요. 위치는 기억됩니다.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .disabled(!model.memo.overlayEnabled)
-                Text("드래그로 옮기고 가장자리를 끌어 크기를 바꿀 수 있어요. 위치는 기억됩니다.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Option+E") {
-                Toggle("목록 옆에 선택한 데스크탑의 메모 미리보기", isOn: $model.memo.previewEnabled)
-            }
-            Section("새 메모 템플릿") {
-                TextEditor(text: $model.memo.template)
-                    .font(.system(.callout, design: .monospaced))
-                    .frame(height: 110)
-                    .scrollContentBackground(.hidden)
-                Text("메모가 없는 데스크탑에서 처음 입력할 때 이 내용으로 시작해요. 고치지 않고 나가면 저장되지 않아요.\n`{{name}}` 데스크탑 이름 · `{{date}}` 오늘 날짜 · 비우면 빈 메모로 시작")
-                    .font(.caption).foregroundStyle(.secondary)
+                Section("Option+E") {
+                    Toggle("목록 옆에 선택한 데스크탑의 메모 미리보기", isOn: $model.memo.previewEnabled)
+                }
+                Section("새 메모 템플릿") {
+                    TextEditor(text: $model.memo.template)
+                        .font(.system(.callout, design: .monospaced))
+                        .frame(height: 110)
+                        .scrollContentBackground(.hidden)
+                    Text("메모가 없는 데스크탑에서 처음 입력할 때 이 내용으로 시작해요. 고치지 않고 나가면 저장되지 않아요.\n`{{name}}` 데스크탑 이름 · `{{date}}` 오늘 날짜 · 비우면 빈 메모로 시작")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -310,7 +325,6 @@ private struct DesktopsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            CategoriesEditor(model: model)
             List(model.spaces) { space in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -322,24 +336,16 @@ private struct DesktopsTab: View {
                         if space.isCurrent {
                             Text("현재").font(.caption).foregroundStyle(.secondary)
                         }
-                        if !model.categories.categories.isEmpty {
-                            Picker("", selection: Binding(
-                                get: { model.categories.category(for: space.id)?.id ?? "" },
-                                set: { model.categories.assign($0.isEmpty ? nil : $0, to: space.id) })) {
-                                Text(DesktopCategories.uncategorizedTitle).tag("")
-                                ForEach(model.categories.categories) { Text($0.name).tag($0.id) }
-                            }
-                            .labelsHidden()
-                            .frame(width: 120)
-                        }
                     }
-                    MemoField(space: space, names: model.names, memos: model.memos)
-                        .padding(.leading, 32)
+                    if model.memo.enabled {
+                        MemoField(space: space, names: model.names, memos: model.memos)
+                            .padding(.leading, 32)
+                    }
                 }
                 .padding(.vertical, 2)
             }
             HStack {
-                Text("Enter로 저장 · 설명 줄바꿈은 ⌥Enter · 비우면 삭제")
+                Text(model.memo.enabled ? "Enter로 저장 · 메모 줄바꿈은 ⌥Enter · 비우면 삭제" : "Enter로 저장 · 비우면 삭제")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("사용하지 않는 이름 정리 (\(model.unusedNames)개)", action: model.removeUnusedNames)
@@ -349,13 +355,47 @@ private struct DesktopsTab: View {
     }
 }
 
+/// Categories (#35) as their own feature (#42): on/off on top, then the list and each desktop's category.
+private struct CategoriesTab: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("카테고리 기능 사용", isOn: $model.categoriesEnabled)
+                Text("Option+E 목록을 todo · 진행 중 같은 카테고리로 묶어 보여 줍니다. 꺼도 카테고리와 지정은 그대로 남아요.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if model.categoriesEnabled {
+                Section("카테고리") {
+                    CategoriesEditor(model: model)
+                }
+                Section("데스크탑별 카테고리") {
+                    if model.categories.categories.isEmpty {
+                        Text("카테고리를 먼저 추가하세요.").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.spaces) { space in
+                            Picker("\(space.index) · \(model.names.displayName(for: space))", selection: Binding(
+                                get: { model.categories.category(for: space.id)?.id ?? "" },
+                                set: { model.categories.assign($0.isEmpty ? nil : $0, to: space.id) })) {
+                                Text(DesktopCategories.uncategorizedTitle).tag("")
+                                ForEach(model.categories.categories) { Text($0.name).tag($0.id) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
 /// Category list (#35): add, rename (Enter), reorder, delete. Order = group order in Option+E.
 private struct CategoriesEditor: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("카테고리").font(.headline)
             ForEach(model.categories.categories) { category in
                 HStack(spacing: 6) {
                     CategoryNameField(category: category, model: model)

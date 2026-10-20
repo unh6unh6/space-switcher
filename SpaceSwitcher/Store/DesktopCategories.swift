@@ -20,6 +20,7 @@ struct DesktopCategories: Codable, Equatable {
     static let uncategorizedTitle = "미분류"
     static let didChange = Notification.Name("DesktopCategories.didChange")
     private static let key = "desktopCategories"
+    private static let enabledKey = "categoriesEnabled"
 
     private(set) var categories: [Category] = []
     /// `Space.id` → `Category.id`. Desktops that vanish keep theirs, like names do.
@@ -97,6 +98,21 @@ struct DesktopCategories: Codable, Equatable {
     func save(to defaults: UserDefaults = .standard) {
         defaults.set(try? JSONEncoder().encode(self), forKey: Self.key)
         NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// The category feature (#42), on by default. Off keeps the categories and assignments.
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) == nil ? true : defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(_ value: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: enabledKey)
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    /// What the switcher groups by: the stored categories, or none while the feature is off.
+    static func active(from defaults: UserDefaults = .standard) -> DesktopCategories {
+        isEnabled(in: defaults) ? load(from: defaults) : DesktopCategories()
     }
 
     private static func clean(_ name: String) -> String? {

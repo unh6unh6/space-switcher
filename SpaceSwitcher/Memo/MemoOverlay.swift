@@ -116,7 +116,7 @@ final class MemoOverlayController: NSObject, NSWindowDelegate {
 
     private func updateVisibility() {
         let empty = model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let shouldShow = settings.overlayEnabled && !(settings.hideWhenEmpty && empty && !model.isFocused)
+        let shouldShow = settings.showsOverlay && !(settings.hideWhenEmpty && empty && !model.isFocused)
         if shouldShow {
             if !panel.isVisible { placePanel() }
             applyOpacity(hovering: false)

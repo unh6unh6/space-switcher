@@ -71,6 +71,8 @@ struct MemoSettings: Equatable {
         }
     }
 
+    /// The memo feature as a whole (#42); off hides every memo surface but keeps the files and settings.
+    var enabled = true
     var overlayEnabled = false
     var previewEnabled = true
     var opacity = 0.85
@@ -89,6 +91,9 @@ struct MemoSettings: Equatable {
     var locked: Set<String> = []
     /// What a desktop's first memo starts from (#36); empty = blank. See `MemoTemplate`.
     var template = ""
+
+    var showsOverlay: Bool { enabled && overlayEnabled }
+    var showsPreview: Bool { enabled && previewEnabled }
 
     func isLocked(_ spaceID: String?) -> Bool {
         spaceID.map(locked.contains) ?? false
@@ -129,11 +134,12 @@ struct MemoSettings: Equatable {
         static let corner = "memoCorner", frame = "memoFrame", collapsed = "memoCollapsed"
         static let hideWhenEmpty = "memoHideWhenEmpty", directory = "memoDirectory", layouts = "memoLayouts",
                          locked = "memoLocked"
-        static let overlayBackground = "memoOverlayBackground", template = "memoTemplate"
+        static let overlayBackground = "memoOverlayBackground", template = "memoTemplate", enabled = "memoEnabled"
     }
 
     static func load(from defaults: UserDefaults = .standard) -> MemoSettings {
         var s = MemoSettings()
+        if defaults.object(forKey: Key.enabled) != nil { s.enabled = defaults.bool(forKey: Key.enabled) }
         if defaults.object(forKey: Key.overlay) != nil { s.overlayEnabled = defaults.bool(forKey: Key.overlay) }
         if defaults.object(forKey: Key.preview) != nil { s.previewEnabled = defaults.bool(forKey: Key.preview) }
         if defaults.object(forKey: Key.opacity) != nil { s.opacity = clampOpacity(defaults.double(forKey: Key.opacity)) }
@@ -153,6 +159,7 @@ struct MemoSettings: Equatable {
     }
 
     func save(to defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: Key.enabled)
         defaults.set(overlayEnabled, forKey: Key.overlay)
         defaults.set(previewEnabled, forKey: Key.preview)
         defaults.set(Self.clampOpacity(opacity), forKey: Key.opacity)

@@ -30,6 +30,8 @@ final class SwitcherViewModel: ObservableObject {
     @Published var editingMemoRow: Int?
     /// Any category exists: the C key does something (#35).
     @Published var hasCategories = false
+    /// The memo feature is on (#42): D edits the memo.
+    @Published var memoEnabled = true
     /// While D-editing (#27): the editor's text, and the version it was opened with (so typing is never
     /// replaced by a reload); bump `memoFocusRequest` to put the caret in.
     var memoEditText = ""
@@ -124,7 +126,8 @@ struct SwitcherView: View {
             if showsPreview { Spacer(minLength: 0) }
             Text(model.editingMemoRow != nil
                  ? "자동 저장 · Esc 완료"
-                 : "↑↓ 이동 · Enter 전환 · 1–9 바로 · R 이름 · D 메모" + (model.hasCategories ? " · C 분류" : "")
+                 : "↑↓ 이동 · Enter 전환 · 1–9 바로 · R 이름" + (model.memoEnabled ? " · D 메모" : "")
+                    + (model.hasCategories ? " · C 분류" : "")
                     + (showsPreview ? " · ⇧↑↓ 스크롤" : "") + " · Esc")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
