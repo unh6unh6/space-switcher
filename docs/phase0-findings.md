@@ -176,3 +176,12 @@ TextEdit에서 Option+E 연타, Option+Shift+E 연타 후 Option 뗌:
 - 데스크탑 3개에서 확인: 펼칠 때마다 **데스크탑 수만큼** layer 15 창이 새 id로 생김(3번 열어 9개). 간격 192, 묶음 가운데 = 화면 가운데 → 왼쪽부터 x 순서 = Spaces 순서로 대응 가능
 - 결론: **SIP 없이 가능**. 감지(폴링) → 펼친 줄 썸네일 창 위치 읽기 → `.stationary` 패널로 이름표
 - 미확인: 접힌 줄(layer 14 한 장, 항목별 창 없음)의 이름 위치, 전체 화면 Space가 섞일 때, 여러 모니터, 썸네일 드래그(순서 바꾸기) 중 위치 추적
+
+## 후속 발견 (2026-10-20, #41): macOS 26에서는 Dock이 Mission Control을 그림
+- 측정: macOS 26.5.1, 1920x1080 메인 디스플레이, 데스크탑 7개 (회사 맥, #41 댓글)
+- 창 목록: **WindowManager 창 없음**. Dock 창만 있음 — 평소 layer 20 전체 화면, 열림 = layer 18 전체 화면 추가, 줄 펼침 = layer 0 전체 화면 추가. **썸네일마다의 창은 없음**
+- 대신 Dock AX 트리에 썸네일이 있음 (macOS 27에서는 `mc`의 자식이 0개): `mc` › `mc.display` › `mc.spaces` › `mc.spaces.list` › `AXButton` '데스크탑 N' (Spaces 순서) + `mc.spaces.add`
+  - 접힌 줄: 버튼 frame이 글자 크기(`60x24`), y 음수 / 펼친 줄: `160x90`, y=28, 간격 192
+  - 닫히는 중: `mc.spaces` 그룹이 화면 위로(y=-146) 올라가지만 버튼 frame은 펼친 값 그대로
+  - macOS 캡션은 썸네일 버튼 **아래** (macOS 27은 썸네일 창 안 아래쪽)
+- 결론: 열림 = Dock layer 18 창, 썸네일 = AX 버튼 frame. 손쉬운 사용 권한은 이미 있음

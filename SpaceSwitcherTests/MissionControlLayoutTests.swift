@@ -94,4 +94,55 @@ final class MissionControlLayoutTests: XCTestCase {
         let long = MissionControlLayout.labelFrame(size: CGSize(width: 400, height: 22), thumbnail: thumbnail, primaryHeight: 1080)
         XCTAssertEqual(long.width, 190)
     }
+
+    // MARK: macOS 26 and earlier (#41): Dock draws Mission Control, thumbnails come from AX
+
+    private func dock(_ id: Int, layer: Int) -> W {
+        W(id: id, owner: "Dock", layer: layer, bounds: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+    }
+
+    func testDockLayer18MeansMissionControlIsOpen() {
+        XCTAssertFalse(MissionControlLayout.isDockMissionControlOpen([dock(1, layer: 20)]))
+        XCTAssertTrue(MissionControlLayout.isDockMissionControlOpen([dock(1, layer: 20), dock(2, layer: 18)]))
+        XCTAssertFalse(MissionControlLayout.isDockMissionControlOpen(
+            [W(id: 3, owner: "WindowManager", layer: 18, bounds: display)]))
+    }
+
+    private func button(_ id: Int, x: CGFloat, y: CGFloat = 28, width: CGFloat = 160, height: CGFloat = 90) -> MissionControlLayout.Thumbnail {
+        MissionControlLayout.Thumbnail(id: id, frame: CGRect(x: x, y: y, width: width, height: height))
+    }
+
+    func testDockExpandedBarListsButtonsLeftToRight() {
+        let state = MissionControlLayout.dockState(buttons: [button(1, x: 590), button(0, x: 398)],
+                                                   spacesGroup: CGRect(x: 0, y: 0, width: 1920, height: 146), display: display)
+        XCTAssertEqual(state, .open([button(0, x: 398), button(1, x: 590)]))
+    }
+
+    // Collapsed: the buttons are just the "데스크탑 N" captions above the screen.
+    func testDockCollapsedBarHasNoThumbnails() {
+        let state = MissionControlLayout.dockState(buttons: [button(0, x: 647, y: -32, width: 60, height: 24)],
+                                                   spacesGroup: CGRect(x: 0, y: 0, width: 1920, height: 146), display: display)
+        XCTAssertEqual(state, .open([]))
+    }
+
+    // Closing: the group slides up while its buttons still report the expanded frames.
+    func testDockClosingBarHidesTheLabels() {
+        let state = MissionControlLayout.dockState(buttons: [button(0, x: 398)],
+                                                   spacesGroup: CGRect(x: 0, y: -146, width: 1920, height: 146), display: display)
+        XCTAssertEqual(state, .open([]))
+    }
+
+    func testDockButtonsOnOtherDisplaysAreSkipped() {
+        let state = MissionControlLayout.dockState(buttons: [button(0, x: 398), button(1, x: 2400)],
+                                                   spacesGroup: nil, display: display)
+        XCTAssertEqual(state, .open([button(0, x: 398)]))
+    }
+
+    // On macOS 26 the caption sits under the thumbnail button, not inside it.
+    func testCaptionBelowPutsTheLabelUnderTheThumbnail() {
+        let thumbnail = CGRect(x: 398, y: 28, width: 160, height: 90)
+        let frame = MissionControlLayout.labelFrame(size: CGSize(width: 120, height: 22), thumbnail: thumbnail,
+                                                    primaryHeight: 1080, captionBelow: true)
+        XCTAssertEqual(frame, CGRect(x: 398 + 20, y: 1080 - (118 + MissionControlLayout.captionGap + 22), width: 120, height: 22))
+    }
 }

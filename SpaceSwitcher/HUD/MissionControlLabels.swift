@@ -16,6 +16,9 @@ final class MissionControlLabelsController: NSObject {
     private var matched: [Int: Int] = [:]
     private var labels: [Int: String] = [:]
     private var panels: [MissionControlLabelPanel] = []
+    /// macOS 26 and earlier (#41): the Dock draws Mission Control and its thumbnails come from AX.
+    private let ax = MissionControlAX()
+    private var captionBelow = false
 
     init(names: NameStore) {
         self.names = names
@@ -59,7 +62,7 @@ final class MissionControlLabelsController: NSObject {
     @objc private func frame() { tick() }
 
     private func tick() {
-        guard case .open(let thumbnails) = MissionControlLayout.state(Self.windows(), display: CGDisplayBounds(CGMainDisplayID())) else {
+        guard case .open(let thumbnails) = currentState() else {
             if displayLink != nil {
                 reset()
                 startIdle()
@@ -85,12 +88,25 @@ final class MissionControlLabelsController: NSObject {
         show(thumbnails)
     }
 
+    private func currentState() -> MissionControlLayout.State {
+        let windows = Self.windows()
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let state = MissionControlLayout.state(windows, display: display)
+        guard state == .closed, MissionControlLayout.isDockMissionControlOpen(windows) else {
+            captionBelow = false
+            return state
+        }
+        captionBelow = true
+        let read = ax.read(display: display)
+        return MissionControlLayout.dockState(buttons: read.buttons, spacesGroup: read.group, display: display)
+    }
+
     private func show(_ thumbnails: [MissionControlLayout.Thumbnail]) {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let shown = thumbnails.compactMap { thumbnail in labels[thumbnail.id].map { (thumbnail.frame, $0) } }
         while panels.count < shown.count { panels.append(MissionControlLabelPanel()) }
         for (panel, (frame, text)) in zip(panels, shown) {
-            panel.show(text, over: frame, primaryHeight: primaryHeight)
+            panel.show(text, over: frame, primaryHeight: primaryHeight, captionBelow: captionBelow)
         }
         for panel in panels.dropFirst(shown.count) { panel.orderOut(nil) }
     }
@@ -99,13 +115,14 @@ final class MissionControlLabelsController: NSObject {
         matched = [:]
         labels = [:]
         thumbnailCount = 0
+        ax.reset()
         for panel in panels { panel.orderOut(nil) }
     }
 
     private static func windows() -> [MissionControlLayout.Window] {
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
         return list.compactMap { info in
-            guard let owner = info[kCGWindowOwnerName as String] as? String, owner == MissionControlLayout.owner,
+            guard let owner = info[kCGWindowOwnerName as String] as? String, owner == MissionControlLayout.owner || owner == MissionControlLayout.dockOwner,
                   let id = info[kCGWindowNumber as String] as? Int,
                   let layer = info[kCGWindowLayer as String] as? Int,
                   let raw = info[kCGWindowBounds as String] as? NSDictionary,
@@ -161,10 +178,11 @@ final class MissionControlLabelPanel: NSPanel {
         contentView = blur
     }
 
-    func show(_ text: String, over thumbnail: CGRect, primaryHeight: CGFloat) {
+    func show(_ text: String, over thumbnail: CGRect, primaryHeight: CGFloat, captionBelow: Bool) {
         if label.stringValue != text { label.stringValue = text }
         let size = blur.fittingSize
-        let frame = MissionControlLayout.labelFrame(size: size, thumbnail: thumbnail, primaryHeight: primaryHeight)
+        let frame = MissionControlLayout.labelFrame(size: size, thumbnail: thumbnail, primaryHeight: primaryHeight,
+                                                    captionBelow: captionBelow)
         if self.frame != frame {
             let resized = self.frame.size != frame.size
             setFrame(frame, display: false)

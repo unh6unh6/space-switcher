@@ -1,10 +1,12 @@
 import CoreGraphics
 import Foundation
 
-/// Reads Mission Control from the window list so desktop names can be laid over its thumbnails (#40).
-/// macOS 27 draws Mission Control in the WindowManager process: a full-screen backdrop (layer 19), the
-/// Spaces bar (layer 14), and, once the bar is expanded, one window per Space thumbnail (layer 15).
-/// See phase0-findings ("Mission Control 위에 데스크탑 이름"). Pure.
+/// Reads Mission Control so desktop names can be laid over its thumbnails (#40). Pure.
+/// - macOS 27 draws it in the WindowManager process: a full-screen backdrop (layer 19), the Spaces bar
+///   (layer 14), and, once the bar is expanded, one window per Space thumbnail (layer 15).
+/// - macOS 26 and earlier (#41) draw it in the Dock: a full-screen layer-18 window while open, with the
+///   thumbnails only in the AX tree (`mc.spaces.list` buttons; see `MissionControlAX`).
+/// See phase0-findings ("Mission Control 위에 데스크탑 이름") and #41.
 enum MissionControlLayout {
     /// One `CGWindowListCopyWindowInfo` entry. Bounds are in CG global coordinates (top-left origin).
     struct Window: Equatable {
@@ -29,6 +31,11 @@ enum MissionControlLayout {
 
     static let owner = "WindowManager"
     static let backdropLayer = 19, barLayer = 14, thumbnailLayer = 15
+    static let dockOwner = "Dock", dockOpenLayer = 18
+    /// Expanded thumbnails are 160x90 on macOS 26; collapsed captions are ~24 pt tall.
+    static let minThumbnailHeight: CGFloat = 50
+    /// macOS 26 draws its caption under the thumbnail button.
+    static let captionGap: CGFloat = 4
     /// Wide enough to cover macOS's own "데스크탑 N" caption under the thumbnail.
     static let labelMinWidth: CGFloat = 110
 
@@ -43,6 +50,22 @@ enum MissionControlLayout {
         return .open(thumbnails)
     }
 
+    static func isDockMissionControlOpen(_ windows: [Window]) -> Bool {
+        windows.contains { $0.owner == dockOwner && $0.layer == dockOpenLayer }
+    }
+
+    /// macOS 26: `buttons` are the `mc.spaces.list` children (AX frames, top-left origin like CG), `spacesGroup`
+    /// is `mc.spaces`. Only an expanded bar on `display` gives thumbnails; while closing, the group slides up
+    /// above the screen but its buttons keep reporting the expanded frames.
+    static func dockState(buttons: [Thumbnail], spacesGroup: CGRect?, display: CGRect) -> State {
+        if let spacesGroup, spacesGroup.minY < display.minY - 1 { return .open([]) }
+        let thumbnails = buttons
+            .filter { $0.frame.height >= minThumbnailHeight && $0.frame.minY >= display.minY
+                && $0.frame.midX >= display.minX && $0.frame.midX < display.maxX }
+            .sorted { $0.frame.minX < $1.frame.minX }
+        return .open(thumbnails)
+    }
+
     /// Which Space position each thumbnail window shows. The first time all `spaceCount` thumbnails
     /// are there, left to right is the Spaces order; after that a window keeps its Space, so a
     /// thumbnail being dragged to reorder keeps its name. Empty = can't tell yet.
@@ -52,14 +75,13 @@ enum MissionControlLayout {
         return Dictionary(uniqueKeysWithValues: thumbnails.enumerated().map { ($1.id, $0) })
     }
 
-    /// A label of `size` on the bottom edge of `thumbnail`, in AppKit coordinates (y grows upward from the
-    /// primary screen's bottom; `thumbnail` is top-left based). The thumbnail window's bottom strip is
-    /// macOS's own "데스크탑 N" caption, so the label covers just that.
-    static func labelFrame(size: CGSize, thumbnail: CGRect, primaryHeight: CGFloat) -> CGRect {
+    /// A label of `size` over macOS's own "데스크탑 N" caption, in AppKit coordinates (y grows upward from the
+    /// primary screen's bottom; `thumbnail` is top-left based). On macOS 27 the caption is the bottom strip of
+    /// the thumbnail window; on macOS 26 (`captionBelow`) it sits under the thumbnail.
+    static func labelFrame(size: CGSize, thumbnail: CGRect, primaryHeight: CGFloat, captionBelow: Bool = false) -> CGRect {
         let width = min(max(size.width, labelMinWidth), thumbnail.width)
-        return CGRect(x: thumbnail.midX - width / 2,
-                      y: primaryHeight - thumbnail.maxY,
-                      width: width, height: size.height)
+        let top = captionBelow ? thumbnail.maxY + captionGap + size.height : thumbnail.maxY
+        return CGRect(x: thumbnail.midX - width / 2, y: primaryHeight - top, width: width, height: size.height)
     }
 
     // MARK: setting
