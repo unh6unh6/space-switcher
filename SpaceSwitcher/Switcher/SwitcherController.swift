@@ -60,6 +60,9 @@ final class SwitcherController {
         model.onMemoChange = { [weak self] text in self?.memoChanged(text) }
         model.onMemoDone = { [weak self] in self?.finishMemo() }
         model.onToggleTask = { [weak self] line in self?.toggleTask(line) }
+        model.onDrop = { [weak self] row, slot, after in
+            self?.rearrange(row) { categories, id, spaces in categories.move(id, to: slot, after: after, among: spaces) }
+        }
 
         recordCurrentSpace()
         let workspace = NSWorkspace.shared.notificationCenter
@@ -150,8 +153,8 @@ final class SwitcherController {
         case .switchToDesktop(let number):
             let target = snapshot.first { $0.index == number }
             close { if let target { SpaceSwitcherService.switchTo(target) } }
-        case .cycleCategory(let row):
-            cycleCategory(row)
+        case .reorder(let row):
+            rearrange(row) { categories, id, spaces in categories.moveDown(id, among: spaces) }
         case .rename(let row):
             guard spaces.indices.contains(row) else { return }
             model.selection = row
@@ -186,14 +189,14 @@ final class SwitcherController {
         }
     }
 
-    /// C (#35): the selected desktop moves to the next category; the list regroups and the selection
-    /// follows the desktop to its new row.
-    private func cycleCategory(_ row: Int) {
+    /// C or a drop (#44): the desktop moves in the list (and so maybe into another category); the list
+    /// regroups and the selection follows the desktop to its new row.
+    private func rearrange(_ row: Int, _ change: (inout DesktopCategories, String, [Space]) -> Void) {
         guard spaces.indices.contains(row) else { return }
-        var categories = DesktopCategories.active()
-        guard !categories.categories.isEmpty else { NSSound.beep(); return }   // none made, or the feature is off (#42)
+        guard DesktopCategories.isEnabled() else { NSSound.beep(); return }   // the feature is off (#42)
+        var categories = DesktopCategories.load()
         let id = spaces[row].id
-        categories.cycle(id)
+        change(&categories, id, spaces)
         categories.save()
         let regrouped = categories.ordered(spaces)
         let newRow = regrouped.firstIndex { $0.id == id } ?? row
@@ -284,15 +287,11 @@ final class SwitcherController {
         model.memoDirectory = memos.directory
         let appsBySpace = SpaceApps.showIcons() ? SpaceAppsProvider.current() : nil
         let categories = DesktopCategories.active()
-        var headers: [String: String] = [:]   // first desktop of each group → its header (#35)
-        for group in categories.groups(spaces) {
-            if let title = group.title, let first = group.spaces.first { headers[first.id] = title }
-        }
-        model.hasCategories = !categories.categories.isEmpty
+        model.canReorder = DesktopCategories.isEnabled()
+        model.lines = Self.lines(categories.groups(spaces, showsEmpty: DesktopCategories.showsEmpty()), spaces: spaces)
         model.rows = spaces.map { space in
             var row = SwitcherViewModel.Row(id: space.id, number: space.index, title: names.displayName(for: space),
                                             isNamed: names.name(for: space.id) != nil, isCurrent: space.isCurrent)
-            row.groupTitle = headers[space.id]
             row.memo = memos.memo(for: space.id)
             row.isLocked = lockedMemos.contains(space.id)
             if let appsBySpace {
@@ -305,6 +304,17 @@ final class SwitcherController {
         let memoSettings = MemoSettings.load()
         model.memoEnabled = memoSettings.enabled
         model.showsMemoPreview = memoSettings.showsPreview && memos.hasAnyMemo(among: Set(spaces.map(\.id)))
+    }
+
+    /// Headers (#35, empty ones with #43) and rows; none for an ungrouped list.
+    private static func lines(_ groups: [DesktopCategories.Group], spaces: [Space]) -> [SwitcherViewModel.Line] {
+        guard groups.contains(where: { $0.title != nil }) else { return [] }
+        let rowOf = Dictionary(spaces.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return groups.flatMap { group -> [SwitcherViewModel.Line] in
+            let rows = group.spaces.compactMap { rowOf[$0.id] }.map(SwitcherViewModel.Line.row)
+            guard let title = group.title else { return rows }
+            return [.header(title: title, slot: .header(group.categoryID), isEmpty: rows.isEmpty)] + rows
+        }
     }
 
     private func recordCurrentSpace() {

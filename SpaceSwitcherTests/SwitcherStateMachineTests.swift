@@ -117,12 +117,12 @@ final class SwitcherStateMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .sticky(selection: 1))
     }
 
-    func testStickyCategoryKeyActsOnTheSelection() {
+    func testStickyReorderKeyActsOnTheSelection() {
         var m = sticky(initial: 2)
-        XCTAssertEqual(m.handle(.cycleCategory), .cycleCategory(2))
+        XCTAssertEqual(m.handle(.reorder), .reorder(2))
         XCTAssertEqual(m.state, .sticky(selection: 2))
         var h = holding(initial: 1)
-        XCTAssertNil(h.handle(.cycleCategory), "only in the popup, not while cycling")
+        XCTAssertNil(h.handle(.reorder), "only in the popup, not while cycling")
     }
 
     func testStickyEnterSwitchesToSelection() {

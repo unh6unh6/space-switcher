@@ -15,11 +15,18 @@ final class SwitcherViewModel: ObservableObject {
         var memo: String? = nil
         /// Read-only memo (#27).
         var isLocked = false
-        /// Category header shown above this row: it starts a group (#35).
-        var groupTitle: String? = nil
+    }
+
+    /// What the list draws, top to bottom: category headers (#35; empty ones too with #43) and rows.
+    enum Line: Equatable {
+        case header(title: String, slot: DesktopCategories.Slot, isEmpty: Bool)
+        case row(Int)
     }
 
     @Published var rows: [Row] = []
+    /// Empty = just the rows (no categories).
+    @Published var lines: [Line] = []
+    var shownLines: [Line] { lines.isEmpty ? rows.indices.map(Line.row) : lines }
     @Published var selection = 0 {
         didSet { restoreMemoScroll() }
     }
@@ -28,8 +35,11 @@ final class SwitcherViewModel: ObservableObject {
     /// Memo preview beside the list (#20): on in Settings and at least one desktop has a memo.
     @Published var showsMemoPreview = false
     @Published var editingMemoRow: Int?
-    /// Any category exists: the C key does something (#35).
-    @Published var hasCategories = false
+    /// Categories are on: C and dragging move rows (#44).
+    @Published var canReorder = false
+    /// While a row is dragged (#44): the row, and the line the drop marker sits above (`shownLines.count` = after the last).
+    @Published var draggedRow: Int?
+    @Published var dropMarker: Int?
     /// The memo feature is on (#42): D edits the memo.
     @Published var memoEnabled = true
     /// While D-editing (#27): the editor's text, and the version it was opened with (so typing is never
@@ -72,6 +82,33 @@ final class SwitcherViewModel: ObservableObject {
     var onMemoChange: (String) -> Void = { _ in }
     var onMemoDone: () -> Void = {}
     var onToggleTask: (Int) -> Void = { _ in }
+    /// A row dropped before or after a line (#44).
+    var onDrop: (_ row: Int, _ slot: DesktopCategories.Slot, _ after: Bool) -> Void = { _, _, _ in }
+
+    /// The line under `y` (list coordinates) and which side of it a drop lands on. A header always takes
+    /// the drop below it, at the top of its group.
+    static func dropTarget(at y: CGFloat, in lines: [Line], rowHeight: CGFloat, headerHeight: CGFloat,
+                           spacing: CGFloat) -> (line: Int, after: Bool)? {
+        guard !lines.isEmpty else { return nil }
+        var top: CGFloat = 0
+        for (i, line) in lines.enumerated() {
+            let height: CGFloat
+            if case .header = line { height = headerHeight } else { height = rowHeight }
+            if y < top + height + spacing || i == lines.count - 1 {
+                if case .header = line { return (i, true) }
+                return (i, y >= top + height / 2)
+            }
+            top += height + spacing
+        }
+        return nil
+    }
+
+    func slot(of line: Line) -> DesktopCategories.Slot? {
+        switch line {
+        case .header(_, let slot, _): return slot
+        case .row(let i): return rows.indices.contains(i) ? .space(rows[i].id) : nil
+        }
+    }
 }
 
 struct SwitcherView: View {
@@ -82,6 +119,8 @@ struct SwitcherView: View {
     static let previewMinHeight: CGFloat = 240
     /// A category header above a group of rows (#35).
     static let headerHeight: CGFloat = 20
+    static let spacing: CGFloat = 2
+    private static let listSpace = "switcherList"
 
     @ObservedObject var model: SwitcherViewModel
     @FocusState private var fieldFocused: Bool
@@ -105,35 +144,85 @@ struct SwitcherView: View {
     /// As tall as the list (min 240) and never taller: a long memo scrolls instead of stretching
     /// the panel, and moving the selection never resizes it.
     private var previewHeight: CGFloat {
-        let headers = CGFloat(model.rows.filter { $0.groupTitle != nil }.count) * (Self.headerHeight + 2)
+        let headers = CGFloat(model.shownLines.filter { if case .header = $0 { return true } else { return false } }.count)
+            * (Self.headerHeight + 2)
         let listHeight = CGFloat(model.rows.count) * (Self.rowHeight + 2) + headers + 28
         return max(listHeight, Self.previewMinHeight)
     }
 
     private var list: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(model.rows.enumerated()), id: \.element.id) { i, row in
-                if let title = row.groupTitle {
-                    Text(title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .frame(height: Self.headerHeight, alignment: .bottomLeading)
+        VStack(alignment: .leading, spacing: Self.spacing) {
+            let lines = model.shownLines
+            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                Group {
+                    switch line {
+                    case let .header(title, _, isEmpty):
+                        header(title, isEmpty: isEmpty)
+                    case .row(let index):
+                        if model.rows.indices.contains(index) { rowView(model.rows[index], index: index) }
+                    }
                 }
-                rowView(row, index: i)
+                .overlay(alignment: .top) { if model.dropMarker == i { dropMarker.offset(y: -2) } }
+                .overlay(alignment: .bottom) { if model.dropMarker == lines.count, i == lines.count - 1 { dropMarker.offset(y: 2) } }
             }
             if showsPreview { Spacer(minLength: 0) }
             Text(model.editingMemoRow != nil
                  ? "자동 저장 · Esc 완료"
                  : "↑↓ 이동 · Enter 전환 · 1–9 바로 · R 이름" + (model.memoEnabled ? " · D 메모" : "")
-                    + (model.hasCategories ? " · C 분류" : "")
+                    + (model.canReorder ? " · C 옮기기" : "")
                     + (showsPreview ? " · ⇧↑↓ 스크롤" : "") + " · Esc")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.top, 6)
                 .padding(.horizontal, 10)
         }
+        .coordinateSpace(name: Self.listSpace)
+    }
+
+    /// A category header; an empty category (#43) is shown dimmed so rows can still be moved under it.
+    private func header(_ title: String, isEmpty: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if isEmpty {
+                Text("비어 있음")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: Self.headerHeight, maxHeight: Self.headerHeight, alignment: .bottomLeading)
+        .opacity(isEmpty ? 0.7 : 1)
+    }
+
+    /// Where a dragged row will land (#44).
+    private var dropMarker: some View {
+        Capsule()
+            .fill(Color.accentColor)
+            .frame(height: 2)
+            .padding(.horizontal, 6)
+    }
+
+    /// Drag a row to another place (#44); moving it under another header recategorizes it.
+    private func dragRow(_ index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.listSpace))
+            .onChanged { value in
+                guard model.canReorder, model.renamingRow == nil, model.editingMemoRow == nil else { return }
+                model.draggedRow = index
+                let target = SwitcherViewModel.dropTarget(at: value.location.y, in: model.shownLines, rowHeight: Self.rowHeight,
+                                                          headerHeight: Self.headerHeight, spacing: Self.spacing)
+                model.dropMarker = target.map { $0.after ? $0.line + 1 : $0.line }
+            }
+            .onEnded { value in
+                defer { model.draggedRow = nil; model.dropMarker = nil }
+                guard model.draggedRow == index,
+                      let target = SwitcherViewModel.dropTarget(at: value.location.y, in: model.shownLines, rowHeight: Self.rowHeight,
+                                                                headerHeight: Self.headerHeight, spacing: Self.spacing),
+                      let slot = model.slot(of: model.shownLines[target.line]) else { return }
+                model.onDrop(index, slot, target.after)
+            }
     }
 
     /// The selected desktop's memo, scrollable; D makes it editable in place (#20, #27).
@@ -239,7 +328,9 @@ struct SwitcherView: View {
         .frame(height: Self.rowHeight)
         .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.accentColor : .clear))
         .contentShape(Rectangle())
+        .opacity(model.draggedRow == index ? 0.5 : 1)
         .onTapGesture(count: 2) { model.onDoubleClick(index) }
         .onTapGesture { model.onClick(index) }
+        .simultaneousGesture(dragRow(index))
     }
 }

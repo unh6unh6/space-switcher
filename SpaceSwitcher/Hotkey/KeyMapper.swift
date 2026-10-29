@@ -36,7 +36,7 @@ enum KeyMapper {
         case KeyCode.downArrow: return .consume(shiftDown ? .scrollMemo(1) : .moveDown)
         case KeyCode.r: return .consume(isAutorepeat ? nil : .beginRename)
         case KeyCode.d: return .consume(isAutorepeat ? nil : .beginDescribe)
-        case KeyCode.c: return .consume(isAutorepeat ? nil : .cycleCategory)
+        case KeyCode.c: return .consume(isAutorepeat ? nil : .reorder)
         default:
             if let i = KeyCode.digits.firstIndex(of: keyCode) { return .consume(.digit(i + 1)) }
             return .consume(nil)

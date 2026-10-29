@@ -17,7 +17,7 @@ final class SettingsModel: ObservableObject {
     @Published var menuBar = MenuBarTitle.Settings.load() {
         didSet { menuBar.save() }
     }
-    /// Desktop categories (#35); the switcher's C key also changes them.
+    /// Desktop categories (#35); C and dragging in the switcher also change them (#44).
     @Published var categories = DesktopCategories.load() {
         didSet { if !syncingCategories { categories.save() } }
     }
@@ -25,6 +25,10 @@ final class SettingsModel: ObservableObject {
     /// The category feature (#42); off = the switcher list isn't grouped and C does nothing.
     @Published var categoriesEnabled = DesktopCategories.isEnabled() {
         didSet { if !syncingCategories { DesktopCategories.setEnabled(categoriesEnabled) } }
+    }
+    /// Empty categories in the switcher (#43).
+    @Published var categoriesShowEmpty = DesktopCategories.showsEmpty() {
+        didSet { if !syncingCategories { DesktopCategories.setShowsEmpty(categoriesShowEmpty) } }
     }
     @Published var newCategory = ""
     /// Merges only the fields this tab edits into the latest stored settings, because the overlay
@@ -78,6 +82,7 @@ final class SettingsModel: ObservableObject {
             syncingCategories = true
             categories = DesktopCategories.load()
             categoriesEnabled = DesktopCategories.isEnabled()
+            categoriesShowEmpty = DesktopCategories.showsEmpty()
             syncingCategories = false
         }
         // Menu bar toggle and the overlay itself also change memo settings; mirror them here.
@@ -370,6 +375,11 @@ private struct CategoriesTab: View {
                 Section("카테고리") {
                     CategoriesEditor(model: model)
                 }
+                Section("Option+E 목록") {
+                    Toggle("빈 카테고리도 목록에 표시", isOn: $model.categoriesShowEmpty)
+                    Text("목록에서 C를 누르면 선택한 데스크탑이 한 칸 아래로 가고, 맨 아래에서 다시 누르면 맨 위로 가요. 마우스로 끌어서 옮겨도 돼요. 다른 카테고리 머리글 아래로 가면 그 카테고리로 바뀌어요. 빈 카테고리를 표시해야 그 카테고리로 옮길 수 있어요.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("데스크탑별 카테고리") {
                     if model.categories.categories.isEmpty {
                         Text("카테고리를 먼저 추가하세요.").foregroundStyle(.secondary)
@@ -415,7 +425,7 @@ private struct CategoriesEditor: View {
                 Button("추가", action: model.addCategory)
                     .disabled(model.newCategory.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            Text("Option+E 목록이 이 순서대로 묶여 보여요. 목록에서 C를 누르면 선택한 데스크탑의 카테고리가 바뀌어요.")
+            Text("Option+E 목록이 이 순서대로 묶여 보여요.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

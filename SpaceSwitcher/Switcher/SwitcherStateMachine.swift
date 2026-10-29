@@ -32,8 +32,8 @@ struct SwitcherStateMachine {
         case beginDescribe, endDescribe
         /// Shift+↑↓: scroll the memo preview by a step (#20).
         case scrollMemo(Int)
-        /// C: the selected desktop goes to the next category (#35).
-        case cycleCategory
+        /// C: the selected desktop moves one row down, wrapping to the top (#44).
+        case reorder
         case clickOutside
         /// The panel vanished without going through the machine (e.g. the app was hidden).
         case dismissed
@@ -50,7 +50,7 @@ struct SwitcherStateMachine {
         case rename(Int)
         case describe(Int)
         case scrollMemo(Int)
-        case cycleCategory(Int)
+        case reorder(Int)
     }
 
     private(set) var state: State = .idle
@@ -124,8 +124,8 @@ struct SwitcherStateMachine {
                 return .scrollMemo(step)
             case .digit(let n) where (1...count).contains(n):
                 return close(.switchToDesktop(n))
-            case .cycleCategory:
-                return .cycleCategory(selection)
+            case .reorder:
+                return .reorder(selection)
             case .confirm:
                 return close(.switchTo(selection))
             case .select(let row) where (0..<count).contains(row):

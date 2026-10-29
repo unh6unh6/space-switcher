@@ -89,7 +89,7 @@ final class KeyMapperTests: XCTestCase {
 
     // #35: C moves the selected desktop to the next category.
     func testCategoryKey() {
-        XCTAssertEqual(map(KeyCode.c, 0, capturing: true), .consume(.cycleCategory))
+        XCTAssertEqual(map(KeyCode.c, 0, capturing: true), .consume(.reorder))
         XCTAssertEqual(map(KeyCode.c, 0, repeat: true, capturing: true), .consume(nil))
         XCTAssertEqual(map(KeyCode.c, 0), .pass)
     }

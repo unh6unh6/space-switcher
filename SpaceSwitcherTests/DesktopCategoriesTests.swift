@@ -40,17 +40,91 @@ final class DesktopCategoriesTests: XCTestCase {
         XCTAssertEqual(titles(c), ["a"])
     }
 
-    func testCycleGoesThroughCategoriesThenBackToNone() {
+    // MARK: empty categories (#43) and moving rows (#44)
+
+    func testShowingEmptyCategoriesListsEveryHeaderAndUncategorized() {
+        var c = made(["todo", "doing", "done"])
+        XCTAssertEqual(c.groups(spaces, showsEmpty: true).map(\.title), ["todo", "doing", "done", "미분류"],
+                       "nothing assigned yet: the headers are there to move desktops under")
+        c.assign("doing", to: "s2")
+        let groups = c.groups(spaces, showsEmpty: true)
+        XCTAssertEqual(groups.map(\.title), ["todo", "doing", "done", "미분류"])
+        XCTAssertEqual(groups.map { $0.spaces.map(\.id) }, [[], ["s2"], [], ["s1", "s3", "s4", "s5"]])
+        for s in spaces { c.assign("doing", to: s.id) }
+        XCTAssertEqual(c.groups(spaces, showsEmpty: true).last?.spaces, [], "an empty 미분류 is shown too")
+        XCTAssertEqual(DesktopCategories().groups(spaces, showsEmpty: true).map(\.title), [nil], "no categories: plain list")
+    }
+
+    private func rows(_ c: DesktopCategories) -> [String] {
+        c.groups(spaces, showsEmpty: true).flatMap { g in [g.title.map { "[\($0)]" } ?? "[]"] + g.spaces.map(\.id) }
+    }
+
+    func testMoveDownStepsOneRowAndCrossesIntoTheNextCategory() {
         var c = made(["todo", "doing"])
-        c.cycle("s1")
-        XCTAssertEqual(c.category(for: "s1")?.name, "todo")
-        c.cycle("s1")
-        XCTAssertEqual(c.category(for: "s1")?.name, "doing")
-        c.cycle("s1")
+        c.assign("todo", to: "s1")
+        c.assign("todo", to: "s2")
+        XCTAssertEqual(rows(c), ["[todo]", "s1", "s2", "[doing]", "[미분류]", "s3", "s4", "s5"])
+        c.moveDown("s1", among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "s2", "s1", "[doing]", "[미분류]", "s3", "s4", "s5"])
+        c.moveDown("s1", among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "s2", "[doing]", "s1", "[미분류]", "s3", "s4", "s5"], "past a header = into that category")
+        XCTAssertEqual(c.category(for: "s1")?.id, "doing")
+        c.moveDown("s1", among: spaces)
         XCTAssertNil(c.category(for: "s1"))
-        var empty = DesktopCategories()
-        empty.cycle("s1")
-        XCTAssertNil(empty.category(for: "s1"), "nothing to cycle through")
+        XCTAssertEqual(rows(c), ["[todo]", "s2", "[doing]", "[미분류]", "s1", "s3", "s4", "s5"])
+    }
+
+    func testMoveDownFromTheBottomWrapsToTheTop() {
+        var c = made(["todo"])
+        c.moveDown("s5", among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "s5", "[미분류]", "s1", "s2", "s3", "s4"])
+        XCTAssertEqual(c.category(for: "s5")?.id, "todo")
+
+        var plain = DesktopCategories()
+        plain.moveDown("s5", among: spaces)
+        XCTAssertEqual(plain.ordered(spaces).map(\.id), ["s5", "s1", "s2", "s3", "s4"], "no categories: just the order")
+        plain.moveDown("s1", among: spaces)
+        XCTAssertEqual(plain.ordered(spaces).map(\.id), ["s5", "s2", "s1", "s3", "s4"])
+    }
+
+    func testDropBeforeOrAfterARowOrUnderAHeader() {
+        var c = made(["todo", "doing"])
+        c.assign("todo", to: "s1")
+        c.move("s4", to: .space("s1"), after: false, among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "s4", "s1", "[doing]", "[미분류]", "s2", "s3", "s5"])
+        c.move("s4", to: .header("doing"), after: true, among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "s1", "[doing]", "s4", "[미분류]", "s2", "s3", "s5"])
+        c.move("s1", to: .space("s5"), after: true, among: spaces)
+        XCTAssertEqual(rows(c), ["[todo]", "[doing]", "s4", "[미분류]", "s2", "s3", "s5", "s1"])
+        XCTAssertNil(c.category(for: "s1"))
+        c.move("s2", to: .space("s2"), after: true, among: spaces)    // onto itself: nothing changes
+        XCTAssertEqual(rows(c), ["[todo]", "[doing]", "s4", "[미분류]", "s2", "s3", "s5", "s1"])
+    }
+
+    // New desktops join the bottom of their group; desktops that vanish keep their place for later.
+    func testNewDesktopsGoLastAndVanishedOnesKeepTheirPlace() {
+        var c = DesktopCategories()
+        c.moveDown("s1", among: Array(spaces.prefix(3)))   // order now s2 s1 s3
+        XCTAssertEqual(c.ordered(spaces).map(\.id), ["s2", "s1", "s3", "s4", "s5"])
+        c.moveDown("s2", among: [space(1), space(2)])        // s3 is gone for now
+        XCTAssertEqual(c.ordered(spaces).map(\.id), ["s1", "s2", "s3", "s4", "s5"])
+    }
+
+    // Data saved before #44 has no order: decoding keeps the categories and macOS order.
+    func testDecodesDataFromBeforeTheOrder() throws {
+        let old = #"{"categories":[{"id":"a","name":"todo"}],"assignments":{"s2":"a"}}"#
+        let c = try JSONDecoder().decode(DesktopCategories.self, from: Data(old.utf8))
+        XCTAssertEqual(c.category(for: "s2")?.name, "todo")
+        XCTAssertEqual(c.ordered(spaces).map(\.id), ["s2", "s1", "s3", "s4", "s5"])
+    }
+
+    func testShowEmptySettingDefaultsOn() {
+        let suite = "SpaceSwitcherTests.DesktopCategories.showsEmpty"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        XCTAssertTrue(DesktopCategories.showsEmpty(in: defaults))
+        DesktopCategories.setShowsEmpty(false, in: defaults)
+        XCTAssertFalse(DesktopCategories.showsEmpty(in: defaults))
     }
 
     func testAddTrimsCapsAndRejectsDuplicatesOrBlank() {
